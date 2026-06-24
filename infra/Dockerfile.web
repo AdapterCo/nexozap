@@ -12,6 +12,7 @@ COPY apps/web/ ./apps/web/
 COPY packages/shared/ ./packages/shared/
 COPY turbo.json ./
 
+RUN mkdir -p apps/web/public
 RUN npx turbo run build --filter=@nexozap/web
 
 FROM node:20-alpine AS runner
