@@ -30,15 +30,15 @@ services:
     expose:
       - "3001"
     environment:
-      - PORT=3001
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/nexozap?schema=public
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - APP_URL=${DOMAIN:-nexozap.adapterco.com.br}
-      - API_URL=api.${DOMAIN:-nexozap.adapterco.com.br}
-      - SESSIONS_DIR=/app/whatsapp-sessions
+      PORT: "3001"
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/nexozap?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      APP_URL: ${DOMAIN:-nexozap.adapterco.com.br}
+      API_URL: api.${DOMAIN:-nexozap.adapterco.com.br}
+      SESSIONS_DIR: /app/whatsapp-sessions
     depends_on:
       - db
       - redis
@@ -64,16 +64,16 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.web
       args:
-        NEXT_PUBLIC_API_URL=http://api:3001
+        NEXT_PUBLIC_API_URL: "http://api:3001"
     container_name: nexozap-web
     restart: unless-stopped
     expose:
       - "3017"
     environment:
-      - PORT=3017
-      - HOSTNAME=0.0.0.0
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://api:3001
+      PORT: "3017"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: "http://api:3001"
     depends_on:
       - api
     labels:
