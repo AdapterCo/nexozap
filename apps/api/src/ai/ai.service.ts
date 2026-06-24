@@ -16,14 +16,11 @@ export class AIService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly httpService: HttpService | null,
+    private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {}
 
   private get http(): HttpService {
-    if (!this.httpService) {
-      throw new Error('HttpService not available');
-    }
     return this.httpService;
   }
 
