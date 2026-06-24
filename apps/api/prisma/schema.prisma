@@ -1,0 +1,333 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  USER
+}
+
+enum Plan {
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum WhatsAppStatus {
+  CONNECTED
+  DISCONNECTED
+  RECONNECTING
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ConversationMode {
+  AI
+  FLOW
+  HUMAN
+}
+
+enum ConversationStatus {
+  ACTIVE
+  CLOSED
+  WAITING
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageSender {
+  CLIENT
+  BOT
+  HUMAN
+}
+
+enum AIProvider {
+  OPENAI
+  GROQ
+  GEMINI
+}
+
+enum ReminderType {
+  HOURS_24
+  HOURS_2
+  AFTER_SERVICE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(USER)
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companies CompanyUser[]
+}
+
+model Company {
+  id           String   @id @default(uuid())
+  name         String
+  ownerName    String
+  whatsapp     String?
+  email        String?
+  address      String?
+  openingTime  String   @default("08:00")
+  closingTime  String   @default("18:00")
+  workingDays  String[] @default(["monday", "tuesday", "wednesday", "thursday", "friday"])
+  plan         Plan     @default(BASIC)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users                 CompanyUser[]
+  whatsappConnections   WhatsAppConnection[]
+  services              Service[]
+  professionals         Professional[]
+  appointments          Appointment[]
+  flows                 Flow[]
+  conversations         Conversation[]
+  aiConfig              AIConfig?
+  notificationSettings  NotificationSettings?
+  tokenUsage            TokenUsage[]
+}
+
+model CompanyUser {
+  id        String  @id @default(uuid())
+  companyId String
+  userId    String
+  role      UserRole @default(USER)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+}
+
+model WhatsAppConnection {
+  id             String         @id @default(uuid())
+  companyId      String
+  instanceName   String
+  instanceId     String?
+  status         WhatsAppStatus @default(DISCONNECTED)
+  qrcode         String?
+  phone          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+}
+
+model Service {
+  id              String   @id @default(uuid())
+  companyId       String
+  name            String
+  description     String?
+  durationMinutes Int      @default(30)
+  price           Float    @default(0)
+  color           String   @default("#10B981")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  professionals ProfessionalService[]
+  appointments  Appointment[]
+}
+
+model Professional {
+  id           String   @id @default(uuid())
+  companyId    String
+  name         String
+  photo        String?
+  specialty    String?
+  workingHours Json     @default("{}")
+  availableDays String[] @default(["monday", "tuesday", "wednesday", "thursday", "friday"])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  services        ProfessionalService[]
+  appointments    Appointment[]
+  workingBlocks   WorkingBlock[]
+  timeBlocks      TimeBlock[]
+}
+
+model ProfessionalService {
+  id             String @id @default(uuid())
+  professionalId String
+  serviceId      String
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([professionalId, serviceId])
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  companyId       String
+  serviceId       String
+  professionalId  String
+  clientName      String
+  clientPhone     String
+  clientEmail     String?
+  date            DateTime
+  startTime       String
+  endTime         String
+  status          AppointmentStatus @default(SCHEDULED)
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id])
+  professional Professional @relation(fields: [professionalId], references: [id])
+  reminders    Reminder[]
+  evaluation   Evaluation?
+}
+
+model WorkingBlock {
+  id             String @id @default(uuid())
+  professionalId String
+  dayOfWeek      String
+  startTime      String
+  endTime        String
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+}
+
+model TimeBlock {
+  id             String   @id @default(uuid())
+  professionalId String
+  date           DateTime
+  startTime      String
+  endTime        String
+  reason         String?
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+}
+
+model Flow {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  description String?
+  isActive    Boolean  @default(false)
+  nodes       Json     @default("[]")
+  edges       Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id                    String             @id @default(uuid())
+  companyId             String
+  whatsappConnectionId  String
+  clientPhone           String
+  clientName            String?
+  mode                  ConversationMode   @default(FLOW)
+  status                ConversationStatus @default(ACTIVE)
+  startedAt             DateTime           @default(now())
+  endedAt               DateTime?
+  tokenUsage            Int                @default(0)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  company             Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  whatsappConnection  WhatsAppConnection  @relation(fields: [whatsappConnectionId], references: [id])
+  messages            Message[]
+}
+
+model Message {
+  id             String           @id @default(uuid())
+  conversationId String
+  content        String
+  direction      MessageDirection
+  sender         MessageSender
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model AIConfig {
+  id                 String     @id @default(uuid())
+  companyId          String     @unique
+  provider           AIProvider @default(OPENAI)
+  model              String     @default("gpt-4o-mini")
+  apiKey             String?
+  personality        String?
+  toneOfVoice        String?
+  rules              Json       @default("[]")
+  faq                Json       @default("[]")
+  isActive           Boolean    @default(false)
+  dailyTokenLimit    Int        @default(100000)
+  monthlyTokenLimit  Int        @default(2000000)
+  allowedHoursStart  String     @default("08:00")
+  allowedHoursEnd    String     @default("22:00")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Reminder {
+  id            String       @id @default(uuid())
+  appointmentId String
+  type          ReminderType
+  message       String
+  sentAt        DateTime?
+  createdAt     DateTime     @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+}
+
+model Evaluation {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  rating        Int
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+}
+
+model TokenUsage {
+  id        String   @id @default(uuid())
+  companyId String
+  date      DateTime @default(now())
+  tokensUsed Int
+  cost      Float    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model NotificationSettings {
+  id                   String  @id @default(uuid())
+  companyId            String  @unique
+  hours24Message       String  @default("Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
+  hours2Message        String  @default("Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
+  afterServiceMessage  String  @default("Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.")
+  isEnabled            Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
