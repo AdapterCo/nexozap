@@ -63,6 +63,8 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL=http://api:3001
     container_name: nexozap-web
     restart: unless-stopped
     expose:
