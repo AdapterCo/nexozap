@@ -1,6 +1,6 @@
 FROM node:20-alpine AS builder
 
-RUN apk add --no-cache git python3 make g++
+RUN apk add --no-cache git openssl python3 make g++
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
@@ -17,7 +17,7 @@ RUN npx turbo run build --filter=@nexozap/api
 
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache git
+RUN apk add --no-cache git openssl
 
 WORKDIR /app
 ENV NODE_ENV=production
