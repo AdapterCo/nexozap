@@ -34,6 +34,17 @@ interface AuthState {
   loadUser: () => Promise<void>;
 }
 
+function setCookie(name: string, value: string, days: number = 7) {
+  if (typeof document === 'undefined') return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function removeCookie(name: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+}
+
 const useAuthStore = create<AuthState>((set) => ({
   user: null,
   company: null,
@@ -48,6 +59,7 @@ const useAuthStore = create<AuthState>((set) => ({
       const { token, user, company } = response.data;
 
       localStorage.setItem('nexozap_token', token);
+      setCookie('nexozap_token', token);
       set({ user, company, token, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
@@ -67,6 +79,7 @@ const useAuthStore = create<AuthState>((set) => ({
       const { token, user, company } = response.data;
 
       localStorage.setItem('nexozap_token', token);
+      setCookie('nexozap_token', token);
       set({ user, company, token, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
@@ -76,6 +89,7 @@ const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     localStorage.removeItem('nexozap_token');
+    removeCookie('nexozap_token');
     set({ user: null, company: null, token: null, isAuthenticated: false });
   },
 
@@ -91,9 +105,11 @@ const useAuthStore = create<AuthState>((set) => ({
       const response = await api.get('/auth/profile');
       const { user, company } = response.data;
 
+      setCookie('nexozap_token', token);
       set({ user, company, token, isAuthenticated: true, isLoading: false });
     } catch {
       localStorage.removeItem('nexozap_token');
+      removeCookie('nexozap_token');
       set({ user: null, company: null, token: null, isAuthenticated: false, isLoading: false });
     }
   },

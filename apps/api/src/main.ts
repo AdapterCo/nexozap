@@ -7,8 +7,21 @@ async function bootstrap() {
   
   app.setGlobalPrefix('api');
   
+  const allowedOrigins = [
+    process.env.APP_URL ? `https://${process.env.APP_URL}` : 'http://localhost:3017',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3017',
+  ];
+
   app.enableCors({
-    origin: process.env.APP_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
     credentials: true,
   });
   
