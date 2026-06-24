@@ -36,9 +36,6 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - APP_URL=${DOMAIN:-nexozap.adapterco.com.br}
       - API_URL=api.${DOMAIN:-nexozap.adapterco.com.br}
       - SESSIONS_DIR=/app/whatsapp-sessions

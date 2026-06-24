@@ -8,7 +8,7 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
-import { AIConfigDto, AIProviderDto } from './dto/ai-config.dto';
+import { AIConfigDto, AIProviderDto, TestKeyDto } from './dto/ai-config.dto';
 
 @Injectable()
 export class AIService {
@@ -112,6 +112,79 @@ export class AIService {
     return { allowed, dailyUsed, monthlyUsed };
   }
 
+  async testKey(dto: TestKeyDto): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
+    try {
+      switch (dto.provider) {
+        case AIProviderDto.OPENAI:
+          return await this.testOpenAIKey(dto.apiKey);
+        case AIProviderDto.GROQ:
+          return await this.testGroqKey(dto.apiKey);
+        case AIProviderDto.GEMINI:
+          return await this.testGeminiKey(dto.apiKey);
+        default:
+          return { valid: false, provider: dto.provider, error: 'Provedor desconhecido' };
+      }
+    } catch (error) {
+      return {
+        valid: false,
+        provider: dto.provider,
+        error: error.message || 'Erro ao validar chave',
+      };
+    }
+  }
+
+  private async testOpenAIKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
+    const response = await firstValueFrom(
+      this.httpService.get('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+    );
+
+    if (response.data?.data?.length > 0) {
+      return {
+        valid: true,
+        provider: 'OPENAI',
+        model: response.data.data[0]?.id,
+      };
+    }
+
+    return { valid: false, provider: 'OPENAI', error: 'Nenhum modelo encontrado' };
+  }
+
+  private async testGroqKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
+    const response = await firstValueFrom(
+      this.httpService.get('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+    );
+
+    if (response.data?.data?.length > 0) {
+      return {
+        valid: true,
+        provider: 'GROQ',
+        model: response.data.data[0]?.id,
+      };
+    }
+
+    return { valid: false, provider: 'GROQ', error: 'Nenhum modelo encontrado' };
+  }
+
+  private async testGeminiKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
+    const response = await firstValueFrom(
+      this.httpService.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`),
+    );
+
+    if (response.data?.models?.length > 0) {
+      return {
+        valid: true,
+        provider: 'GEMINI',
+        model: response.data.models[0]?.name?.replace('models/', ''),
+      };
+    }
+
+    return { valid: false, provider: 'GEMINI', error: 'Nenhum modelo encontrado' };
+  }
+
   async chat(conversationId: string, message: string, companyId: string) {
     const tokenCheck = await this.checkTokenLimit(companyId);
     if (!tokenCheck.allowed) {
@@ -139,11 +212,11 @@ export class AIService {
     const systemPrompt = this.buildSystemPrompt(config, company, services, professionals);
     const provider = (config?.provider as AIProviderDto) || AIProviderDto.OPENAI;
     const model = config?.model || this.getDefaultModel(provider);
-    const apiKey = config?.apiKey || this.getEnvApiKey(provider);
+    const apiKey = config?.apiKey;
 
     if (!apiKey) {
       throw new BadRequestException(
-        `Chave de API do ${provider} não configurada. Configure nas configurações de IA.`,
+        `Chave de API do ${provider} não configurada. Configure uma chave válida nas configurações de IA.`,
       );
     }
 
@@ -202,15 +275,6 @@ export class AIService {
       [AIProviderDto.GEMINI]: 'gemini-2.5-flash',
     };
     return defaults[provider];
-  }
-
-  private getEnvApiKey(provider: AIProviderDto): string | undefined {
-    const envKeys: Record<AIProviderDto, string> = {
-      [AIProviderDto.OPENAI]: 'OPENAI_API_KEY',
-      [AIProviderDto.GROQ]: 'GROQ_API_KEY',
-      [AIProviderDto.GEMINI]: 'GEMINI_API_KEY',
-    };
-    return this.configService.get<string>(envKeys[provider]);
   }
 
   private getCostPerToken(provider: AIProviderDto, model: string): number {

@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Plus,
   Trash2,
   Bot,
-  MessageSquare,
   ListChecks,
   HelpCircle,
   Clock,
@@ -15,8 +14,12 @@ import {
   Zap,
   Brain,
   ExternalLink,
+  CheckCircle,
+  XCircle,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import api from '@/lib/api'
 
 interface AiConfig {
   provider: string
@@ -108,14 +111,22 @@ function Sparkles(props: any) {
   )
 }
 
+type KeyStatus = 'idle' | 'testing' | 'valid' | 'invalid'
+
 export function AiSettingsForm({ config, onChange }: AiSettingsFormProps) {
   const [newRule, setNewRule] = useState('')
   const [newFaqQuestion, setNewFaqQuestion] = useState('')
   const [newFaqAnswer, setNewFaqAnswer] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
+  const [keyStatus, setKeyStatus] = useState<KeyStatus>('idle')
+  const [keyError, setKeyError] = useState('')
 
   const update = (partial: Partial<AiConfig>) => {
     onChange({ ...config, ...partial })
+    if (partial.provider !== undefined || partial.apiKey !== undefined) {
+      setKeyStatus('idle')
+      setKeyError('')
+    }
   }
 
   const addRule = () => {
@@ -141,6 +152,35 @@ export function AiSettingsForm({ config, onChange }: AiSettingsFormProps) {
 
   const removeFaq = (index: number) => {
     update({ faqs: config.faqs.filter((_, i) => i !== index) })
+  }
+
+  const testApiKey = async () => {
+    if (!config.apiKey.trim()) {
+      setKeyStatus('invalid')
+      setKeyError('Digite uma chave de API para testar')
+      return
+    }
+
+    setKeyStatus('testing')
+    setKeyError('')
+
+    try {
+      const res = await api.post('/ai/test-key', {
+        provider: config.provider,
+        apiKey: config.apiKey,
+      })
+
+      if (res.data.valid) {
+        setKeyStatus('valid')
+        setKeyError('')
+      } else {
+        setKeyStatus('invalid')
+        setKeyError(res.data.error || 'Chave inválida')
+      }
+    } catch (error: any) {
+      setKeyStatus('invalid')
+      setKeyError(error.response?.data?.message || 'Erro ao validar chave')
+    }
   }
 
   const selectedProvider = providerOptions.find((p) => p.id === config.provider) || providerOptions[0]
@@ -201,26 +241,74 @@ export function AiSettingsForm({ config, onChange }: AiSettingsFormProps) {
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
-              Chave de API {selectedProvider.name}
+              Chave de API {selectedProvider.name} <span className="text-red-500">*</span>
             </label>
-            <div className="relative">
-              <Key className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={config.apiKey}
-                onChange={(e) => update({ apiKey: e.target.value })}
-                placeholder={`Cole sua chave de API do ${selectedProvider.name}...`}
-                className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-20 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Key className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={config.apiKey}
+                  onChange={(e) => update({ apiKey: e.target.value })}
+                  placeholder={`Cole sua chave de API do ${selectedProvider.name}...`}
+                  className={cn(
+                    'w-full rounded-lg border py-2 pl-9 pr-10 text-sm focus:outline-none focus:ring-1',
+                    keyStatus === 'valid' && 'border-green-300 focus:border-green-500 focus:ring-green-500',
+                    keyStatus === 'invalid' && 'border-red-300 focus:border-red-500 focus:ring-red-500',
+                    keyStatus === 'idle' && 'border-gray-300 focus:border-purple-500 focus:ring-purple-500',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1 py-0.5 text-xs text-gray-500 hover:bg-gray-100"
+                >
+                  {showApiKey ? '🙈' : '👁'}
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                onClick={testApiKey}
+                disabled={keyStatus === 'testing' || !config.apiKey.trim()}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap',
+                  keyStatus === 'valid'
+                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                    : keyStatus === 'invalid'
+                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+                  (!config.apiKey.trim() || keyStatus === 'testing') && 'opacity-50 cursor-not-allowed',
+                )}
               >
-                {showApiKey ? 'Ocultar' : 'Mostrar'}
+                {keyStatus === 'testing' ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Testando...
+                  </>
+                ) : keyStatus === 'valid' ? (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    Válida
+                  </>
+                ) : keyStatus === 'invalid' ? (
+                  <>
+                    <XCircle className="h-4 w-4" />
+                    Inválida
+                  </>
+                ) : (
+                  'Testar Chave'
+                )}
               </button>
             </div>
-            <div className="mt-1.5 flex items-center gap-1.5">
+
+            {keyStatus === 'valid' && (
+              <p className="mt-1.5 text-xs text-green-600">Chave validada com sucesso</p>
+            )}
+            {keyStatus === 'invalid' && keyError && (
+              <p className="mt-1.5 text-xs text-red-600">{keyError}</p>
+            )}
+
+            <div className="mt-2">
               <a
                 href={selectedProvider.url}
                 target="_blank"
@@ -229,8 +317,6 @@ export function AiSettingsForm({ config, onChange }: AiSettingsFormProps) {
               >
                 Obter chave de API <ExternalLink className="h-3 w-3" />
               </a>
-              <span className="text-xs text-gray-400">|</span>
-              <span className="text-xs text-gray-400">Deixe vazio para usar a chave do .env</span>
             </div>
           </div>
         </div>
@@ -283,13 +369,25 @@ export function AiSettingsForm({ config, onChange }: AiSettingsFormProps) {
                     ? 'O assistente IA está atendendo automaticamente'
                     : 'O assistente IA está desativado'}
                 </p>
+                {config.isActive && keyStatus !== 'valid' && !config.apiKey && (
+                  <p className="text-xs text-red-500 mt-0.5">
+                    Configure e valide uma chave de API para ativar
+                  </p>
+                )}
               </div>
             </div>
             <button
-              onClick={() => update({ isActive: !config.isActive })}
+              onClick={() => {
+                if (!config.isActive && keyStatus !== 'valid' && !config.apiKey) {
+                  return
+                }
+                update({ isActive: !config.isActive })
+              }}
+              disabled={!config.isActive && keyStatus !== 'valid' && !config.apiKey}
               className={cn(
                 'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                config.isActive ? 'bg-purple-600' : 'bg-gray-300'
+                config.isActive ? 'bg-purple-600' : 'bg-gray-300',
+                !config.isActive && keyStatus !== 'valid' && !config.apiKey && 'opacity-50 cursor-not-allowed',
               )}
             >
               <span

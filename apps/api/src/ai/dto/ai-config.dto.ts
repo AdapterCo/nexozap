@@ -56,6 +56,14 @@ export class AIConfigDto {
   allowedHoursEnd?: string;
 }
 
+export class TestKeyDto {
+  @IsEnum(AIProviderDto)
+  provider: AIProviderDto;
+
+  @IsString()
+  apiKey: string;
+}
+
 export const AI_MODELS: Record<AIProviderDto, { id: string; name: string }[]> = {
   [AIProviderDto.OPENAI]: [
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Rápido e econômico)' },

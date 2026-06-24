@@ -10,7 +10,7 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AIService } from './ai.service';
 import { ChatDto } from './dto/chat.dto';
-import { AIConfigDto, AI_MODELS } from './dto/ai-config.dto';
+import { AIConfigDto, TestKeyDto, AI_MODELS } from './dto/ai-config.dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller()
@@ -33,6 +33,11 @@ export class AIController {
     }
 
     return this.aiService.chat(dto.conversationId, dto.message, conversation.companyId);
+  }
+
+  @Post('ai/test-key')
+  async testKey(@Body() dto: TestKeyDto) {
+    return this.aiService.testKey(dto);
   }
 
   @Get('ai/models')
