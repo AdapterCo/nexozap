@@ -16,7 +16,7 @@ export class AIService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly httpService: HttpService,
+    private readonly httpService: HttpService | null,
     private readonly configService: ConfigService,
   ) {}
 

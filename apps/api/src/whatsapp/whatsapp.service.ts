@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import makeWASocket, {
@@ -22,6 +23,7 @@ export class WhatsAppService implements OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly httpService: HttpService,
   ) {
     this.sessionsDir = path.resolve(process.cwd(), 'whatsapp-sessions');
     if (!fs.existsSync(this.sessionsDir)) {
@@ -307,7 +309,7 @@ export class WhatsAppService implements OnModuleDestroy {
     if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
-        const aiService = new AIService(this.prisma, null, this.configService);
+        const aiService = new AIService(this.prisma, this.httpService, this.configService);
         const result = await aiService.chat(conversation.id, messageContent, companyId);
         botResponse = result.response;
       } catch (error) {
