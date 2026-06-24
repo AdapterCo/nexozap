@@ -1,14 +1,13 @@
-import { Controller, Post, Get, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
-import { ConnectDto } from './dto/connect.dto';
 
 @Controller('whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsappService: WhatsAppService) {}
 
   @Post('connect')
-  async connect(@Body() dto: ConnectDto) {
-    return this.whatsappService.connect(dto.companyId, dto.instanceName);
+  async connect(@Body() body: { companyId: string }) {
+    return this.whatsappService.connect(body.companyId);
   }
 
   @Get('qrcode/:companyId')
@@ -24,10 +23,5 @@ export class WhatsAppController {
   @Delete('disconnect/:companyId')
   async disconnect(@Param('companyId') companyId: string) {
     return this.whatsappService.disconnect(companyId);
-  }
-
-  @Post('webhook')
-  async webhook(@Body() data: any) {
-    return this.whatsappService.handleIncomingMessage(data);
   }
 }

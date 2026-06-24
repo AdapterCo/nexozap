@@ -36,16 +36,17 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-http://evolution:8080}
-      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - APP_URL=${DOMAIN:-nexozap.adapterco.com.br}
       - API_URL=api.${DOMAIN:-nexozap.adapterco.com.br}
+      - SESSIONS_DIR=/app/whatsapp-sessions
     depends_on:
       - db
       - redis
+    volumes:
+      - whatsapp_sessions:/app/whatsapp-sessions
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"
@@ -93,6 +94,7 @@ services:
 volumes:
   pgdata:
   redis_data:
+  whatsapp_sessions:
 
 networks:
   nexozap_internal:
