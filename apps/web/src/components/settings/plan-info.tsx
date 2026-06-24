@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Check, X, CreditCard, Users, MessageSquare, CalendarCheck } from 'lucide-react'
 import api from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
+import useAuthStore from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
 
 interface PlanDetails {

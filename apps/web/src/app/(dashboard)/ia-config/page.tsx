@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Brain, Save } from 'lucide-react'
 import api from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
+import useAuthStore from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
 import { AiSettingsForm } from '@/components/ai-config/ai-settings-form'
 import { TokenLimits } from '@/components/ai-config/token-limits'

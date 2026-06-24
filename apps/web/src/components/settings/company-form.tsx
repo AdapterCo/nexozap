@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Building2, Save } from 'lucide-react'
 import api from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
+import useAuthStore from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
 
 interface CompanyData {
@@ -14,7 +14,7 @@ interface CompanyData {
   address: string
   openingTime: string
   closingTime: string
-  operatingDays: string[]
+  workingDays: string[]
 }
 
 const allDays = [
@@ -37,7 +37,7 @@ export function CompanyForm() {
     address: '',
     openingTime: '08:00',
     closingTime: '18:00',
-    operatingDays: ['segunda', 'terca', 'quarta', 'quinta', 'sexta'],
+    workingDays: ['segunda', 'terca', 'quarta', 'quinta', 'sexta'],
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -52,7 +52,7 @@ export function CompanyForm() {
         address: company.address || '',
         openingTime: company.openingTime || '08:00',
         closingTime: company.closingTime || '18:00',
-        operatingDays: company.operatingDays || [
+        workingDays: company.workingDays || [
           'segunda', 'terca', 'quarta', 'quinta', 'sexta',
         ],
       })
@@ -74,7 +74,8 @@ export function CompanyForm() {
   const handleSave = async () => {
     try {
       setSaving(true)
-      await api.put('/company', form)
+      if (!company?.id) return
+      await api.patch(`/companies/${company.id}`, form)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch {
@@ -84,10 +85,10 @@ export function CompanyForm() {
   }
 
   const toggleDay = (day: string) => {
-    const days = form.operatingDays.includes(day)
-      ? form.operatingDays.filter((d) => d !== day)
-      : [...form.operatingDays, day]
-    update({ operatingDays: days })
+    const days = form.workingDays.includes(day)
+      ? form.workingDays.filter((d) => d !== day)
+      : [...form.workingDays, day]
+    update({ workingDays: days })
   }
 
   return (
@@ -191,7 +192,7 @@ export function CompanyForm() {
                 onClick={() => toggleDay(day.value)}
                 className={cn(
                   'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                  form.operatingDays.includes(day.value)
+                  form.workingDays.includes(day.value)
                     ? 'border-gray-900 bg-gray-900 text-white'
                     : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
                 )}

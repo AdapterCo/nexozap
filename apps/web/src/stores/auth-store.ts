@@ -13,6 +13,13 @@ interface Company {
   id: string;
   name: string;
   plan: string;
+  ownerName?: string;
+  whatsapp?: string | null;
+  email?: string | null;
+  address?: string | null;
+  openingTime?: string;
+  closingTime?: string;
+  workingDays?: string[];
 }
 
 interface AuthState {
