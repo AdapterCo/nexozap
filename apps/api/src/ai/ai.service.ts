@@ -20,6 +20,13 @@ export class AIService {
     private readonly configService: ConfigService,
   ) {}
 
+  private get http(): HttpService {
+    if (!this.httpService) {
+      throw new Error('HttpService not available');
+    }
+    return this.httpService;
+  }
+
   async getAIConfig(companyId: string) {
     const config = await this.prisma.aIConfig.findFirst({
       where: { companyId },
@@ -135,7 +142,7 @@ export class AIService {
 
   private async testOpenAIKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
     const response = await firstValueFrom(
-      this.httpService.get('https://api.openai.com/v1/models', {
+      this.http.get('https://api.openai.com/v1/models', {
         headers: { Authorization: `Bearer ${apiKey}` },
       }),
     );
@@ -153,7 +160,7 @@ export class AIService {
 
   private async testGroqKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
     const response = await firstValueFrom(
-      this.httpService.get('https://api.groq.com/openai/v1/models', {
+      this.http.get('https://api.groq.com/openai/v1/models', {
         headers: { Authorization: `Bearer ${apiKey}` },
       }),
     );
@@ -171,7 +178,7 @@ export class AIService {
 
   private async testGeminiKey(apiKey: string): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
     const response = await firstValueFrom(
-      this.httpService.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`),
+      this.http.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`),
     );
 
     if (response.data?.models?.length > 0) {
@@ -376,7 +383,7 @@ export class AIService {
     let totalTokens = 0;
 
     const response = await firstValueFrom(
-      this.httpService.post(
+      this.http.post(
         'https://api.openai.com/v1/chat/completions',
         { model, messages, tools, tool_choice: 'auto', max_tokens: 1000 },
         { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
@@ -401,7 +408,7 @@ export class AIService {
       }
 
       const followUp = await firstValueFrom(
-        this.httpService.post(
+        this.http.post(
           'https://api.openai.com/v1/chat/completions',
           { model, messages, max_tokens: 1000 },
           { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
@@ -425,7 +432,7 @@ export class AIService {
     let totalTokens = 0;
 
     const response = await firstValueFrom(
-      this.httpService.post(
+      this.http.post(
         'https://api.groq.com/openai/v1/chat/completions',
         { model, messages, tools, tool_choice: 'auto', max_tokens: 1000 },
         { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
@@ -450,7 +457,7 @@ export class AIService {
       }
 
       const followUp = await firstValueFrom(
-        this.httpService.post(
+        this.http.post(
           'https://api.groq.com/openai/v1/chat/completions',
           { model, messages, max_tokens: 1000 },
           { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
@@ -495,7 +502,7 @@ export class AIService {
     };
 
     const response = await firstValueFrom(
-      this.httpService.post(
+      this.http.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         requestBody,
         { headers: { 'Content-Type': 'application/json' } },
@@ -527,7 +534,7 @@ export class AIService {
       contents.push({ role: 'user', parts: functionResponses });
 
       const followUpResponse = await firstValueFrom(
-        this.httpService.post(
+        this.http.post(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
           {
             contents,

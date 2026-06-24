@@ -27,9 +27,9 @@ export class DashboardService {
       todayAppointments,
       weekAppointments,
       activeConversations,
-      completedAppointments,
+      completedCount,
       cancelledAppointments,
-      revenueAgg,
+      completedAppointments,
       evaluationsAgg,
     ] = await Promise.all([
       this.prisma.appointment.count({ where: { companyId } }),
@@ -54,9 +54,8 @@ export class DashboardService {
       this.prisma.appointment.count({
         where: { companyId, status: 'CANCELLED' },
       }),
-      this.prisma.appointment.aggregate({
+      this.prisma.appointment.findMany({
         where: { companyId, status: 'COMPLETED' },
-        _sum: { service: { select: { price: true } } },
         include: { service: { select: { price: true } } },
       }),
       this.prisma.evaluation.aggregate({
@@ -67,14 +66,12 @@ export class DashboardService {
 
     const conversionRate =
       totalAppointments > 0
-        ? Math.round((completedAppointments / totalAppointments) * 100 * 100) / 100
+        ? Math.round((completedCount / totalAppointments) * 100 * 100) / 100
         : 0;
 
-    const totalRevenue = await this.prisma.appointment.findMany({
-      where: { companyId, status: 'COMPLETED' },
-      include: { service: { select: { price: true } } },
-    }).then((appointments) =>
-      appointments.reduce((sum, a) => sum + (a.service?.price || 0), 0),
+    const totalRevenue = completedAppointments.reduce(
+      (sum, a) => sum + (a.service?.price || 0),
+      0,
     );
 
     const averageRating = evaluationsAgg._avg.rating
@@ -86,7 +83,7 @@ export class DashboardService {
       todayAppointments,
       weekAppointments,
       activeConversations,
-      completedAppointments,
+      completedAppointments: completedCount,
       cancelledAppointments,
       conversionRate,
       totalRevenue,

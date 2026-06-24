@@ -88,6 +88,10 @@ export class ClientsService {
       where: { id: appointment.professionalId },
     });
 
+    if (!professional) {
+      throw new NotFoundException('Profissional não encontrado');
+    }
+
     if (!professional.availableDays.includes(dayName)) {
       throw new BadRequestException('Profissional não disponível neste dia');
     }

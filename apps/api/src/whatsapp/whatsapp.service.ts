@@ -75,19 +75,24 @@ export class WhatsAppService implements OnModuleDestroy {
 
       if (qr) {
         this.qrCodes.set(companyId, qr);
-        await this.prisma.whatsAppConnection.upsert({
+        const existingConn = await this.prisma.whatsAppConnection.findFirst({
           where: { companyId },
-          update: {
-            status: 'RECONNECTING',
-            qrcode: qr,
-          },
-          create: {
-            companyId,
-            instanceName: companyId,
-            status: 'RECONNECTING',
-            qrcode: qr,
-          },
         });
+        if (existingConn) {
+          await this.prisma.whatsAppConnection.update({
+            where: { id: existingConn.id },
+            data: { status: 'RECONNECTING', qrcode: qr },
+          });
+        } else {
+          await this.prisma.whatsAppConnection.create({
+            data: {
+              companyId,
+              instanceName: companyId,
+              status: 'RECONNECTING',
+              qrcode: qr,
+            },
+          });
+        }
         this.logger.log(`QR Code generated for company ${companyId}`);
       }
 
@@ -113,20 +118,24 @@ export class WhatsAppService implements OnModuleDestroy {
       if (connection === 'open') {
         const phone = sock.user?.id?.replace(/:.*@/, '@')?.split('@')[0] || '';
 
-        await this.prisma.whatsAppConnection.upsert({
+        const existingConn2 = await this.prisma.whatsAppConnection.findFirst({
           where: { companyId },
-          update: {
-            status: 'CONNECTED',
-            qrcode: null,
-            phone,
-          },
-          create: {
-            companyId,
-            instanceName: companyId,
-            status: 'CONNECTED',
-            phone,
-          },
         });
+        if (existingConn2) {
+          await this.prisma.whatsAppConnection.update({
+            where: { id: existingConn2.id },
+            data: { status: 'CONNECTED', qrcode: null, phone },
+          });
+        } else {
+          await this.prisma.whatsAppConnection.create({
+            data: {
+              companyId,
+              instanceName: companyId,
+              status: 'CONNECTED',
+              phone,
+            },
+          });
+        }
 
         this.qrCodes.delete(companyId);
         this.logger.log(`Connected for company ${companyId}, phone: ${phone}`);
@@ -141,18 +150,23 @@ export class WhatsAppService implements OnModuleDestroy {
       }
     });
 
-    await this.prisma.whatsAppConnection.upsert({
+    const existingConn3 = await this.prisma.whatsAppConnection.findFirst({
       where: { companyId },
-      update: {
-        status: 'RECONNECTING',
-        instanceName: companyId,
-      },
-      create: {
-        companyId,
-        instanceName: companyId,
-        status: 'RECONNECTING',
-      },
     });
+    if (existingConn3) {
+      await this.prisma.whatsAppConnection.update({
+        where: { id: existingConn3.id },
+        data: { status: 'RECONNECTING', instanceName: companyId },
+      });
+    } else {
+      await this.prisma.whatsAppConnection.create({
+        data: {
+          companyId,
+          instanceName: companyId,
+          status: 'RECONNECTING',
+        },
+      });
+    }
 
     return { status: 'RECONNECTING', message: 'Conectando... escaneie o QR Code' };
   }

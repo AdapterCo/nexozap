@@ -153,6 +153,10 @@ export class AppointmentsService {
       where: { id: companyId },
     });
 
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
     if (
       dto.startTime < company.openingTime ||
       dto.startTime >= company.closingTime
@@ -294,6 +298,10 @@ export class AppointmentsService {
       where: { id: appointment.serviceId },
     });
 
+    if (!service) {
+      throw new NotFoundException('Serviço não encontrado');
+    }
+
     const [startH, startM] = newStartTime.split(':').map(Number);
     const totalMinutes = startH * 60 + startM + service.durationMinutes;
     const endH = Math.floor(totalMinutes / 60);
@@ -307,6 +315,10 @@ export class AppointmentsService {
       where: { id: appointment.professionalId },
     });
 
+    if (!professional) {
+      throw new NotFoundException('Profissional não encontrado');
+    }
+
     if (!professional.availableDays.includes(dayName)) {
       throw new BadRequestException(
         `Profissional não disponível no dia ${dayName}`,
@@ -316,6 +328,10 @@ export class AppointmentsService {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
     });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
 
     if (
       newStartTime < company.openingTime ||
