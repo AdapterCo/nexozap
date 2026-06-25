@@ -11,6 +11,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class WhatsAppService implements OnModuleDestroy {
@@ -173,7 +174,7 @@ export class WhatsAppService implements OnModuleDestroy {
   async getQRCode(companyId: string) {
     const qr = this.qrCodes.get(companyId);
     if (qr) {
-      return { qrcode: qr };
+      return this.formatQRCode(qr);
     }
 
     const connection = await this.prisma.whatsAppConnection.findFirst({
@@ -181,10 +182,20 @@ export class WhatsAppService implements OnModuleDestroy {
     });
 
     if (connection?.qrcode) {
-      return { qrcode: connection.qrcode };
+      return this.formatQRCode(connection.qrcode);
     }
 
     return { qrcode: null, message: 'QR Code ainda não disponível' };
+  }
+
+  private async formatQRCode(qr: string) {
+    const qrCode = await QRCode.toDataURL(qr, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 320,
+    });
+
+    return { qrcode: qr, qrCode };
   }
 
   async getStatus(companyId: string) {

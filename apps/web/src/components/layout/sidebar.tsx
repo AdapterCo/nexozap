@@ -22,7 +22,7 @@ import useUIStore from '@/stores/ui-store';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
+  { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'Agenda', icon: Calendar, href: '/agenda' },
   { label: 'Serviços', icon: Scissors, href: '/servicos' },
   { label: 'Profissionais', icon: Users, href: '/profissionais' },

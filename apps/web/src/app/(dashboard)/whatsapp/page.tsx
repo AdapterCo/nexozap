@@ -25,7 +25,7 @@ export default function WhatsAppPage() {
     try {
       if (!company?.id) return;
       const response = await api.get(`/companies/${company.id}/whatsapp/status`);
-      setStatus(response.data);
+      setStatus((prev) => ({ ...prev, ...response.data, qrCode: response.data.qrCode || prev.qrCode }));
     } catch (err) {
       console.error('Erro ao buscar status:', err);
     }
@@ -35,7 +35,7 @@ export default function WhatsAppPage() {
     try {
       if (!company?.id) return;
       const response = await api.get(`/companies/${company.id}/whatsapp/qrcode`);
-      setStatus((prev) => ({ ...prev, qrCode: response.data.qrCode }));
+      setStatus((prev) => ({ ...prev, qrCode: response.data.qrCode || response.data.qrcode || undefined }));
     } catch (err) {
       console.error('Erro ao buscar QR Code:', err);
     }
@@ -56,15 +56,16 @@ export default function WhatsAppPage() {
   }, [status.status, fetchQrCode]);
 
   const handleConnect = async () => {
-    if (!instanceName.trim()) {
+    if (!company?.id) {
       setError('Digite o nome da instância');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      await api.post(`/companies/${company?.id}/whatsapp/connect`);
-      setStatus((prev) => ({ ...prev, status: 'RECONNECTING', instanceName: instanceName.trim() }));
+      await api.post(`/companies/${company.id}/whatsapp/connect`);
+      setStatus((prev) => ({ ...prev, status: 'RECONNECTING', instanceName: company.id }));
+      await fetchQrCode();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erro ao conectar');
     } finally {
@@ -201,7 +202,7 @@ export default function WhatsAppPage() {
                 </div>
               ) : (
                 <button
-                  onClick={() => setShowInstanceInput(true)}
+                  onClick={handleConnect}
                   className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"
                 >
                   Conectar
