@@ -99,19 +99,20 @@ export class WhatsAppService implements OnModuleDestroy {
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const restartRequired = statusCode === DisconnectReason.restartRequired;
 
         this.logger.log(`Connection closed for ${companyId}, status: ${statusCode}, reconnect: ${shouldReconnect}`);
 
         await this.prisma.whatsAppConnection.updateMany({
           where: { companyId },
-          data: { status: 'DISCONNECTED', qrcode: null },
+          data: { status: restartRequired || shouldReconnect ? 'RECONNECTING' : 'DISCONNECTED', qrcode: null },
         });
 
         this.connections.delete(companyId);
         this.qrCodes.delete(companyId);
 
         if (shouldReconnect) {
-          setTimeout(() => this.connect(companyId), 5000);
+          setTimeout(() => this.connect(companyId), restartRequired ? 1000 : 5000);
         }
       }
 
@@ -205,6 +206,11 @@ export class WhatsAppService implements OnModuleDestroy {
 
     if (!connection) {
       return { status: 'DISCONNECTED', phone: null };
+    }
+
+    if (connection.status === 'RECONNECTING' && connection.qrcode) {
+      const qr = await this.formatQRCode(connection.qrcode);
+      return { status: 'RECONNECTING', phone: connection.phone, ...qr };
     }
 
     const sock = this.connections.get(companyId);
