@@ -45,8 +45,7 @@ export default function BlockTimeModal({
 
     setSaving(true);
     try {
-      await api.post('/blocked-times', {
-        companyId: company.id,
+      await api.post(`/companies/${company.id}/appointments/block-time`, {
         professionalId,
         date,
         startTime,

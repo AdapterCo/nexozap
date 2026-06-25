@@ -10,6 +10,7 @@ import NodePalette from '@/components/flow-builder/node-palette';
 import FlowCanvas from '@/components/flow-builder/flow-canvas';
 import PropertiesPanel from '@/components/flow-builder/properties-panel';
 import { cn } from '@/lib/utils';
+import { mapFlow } from '@/lib/api-mappers';
 
 export default function FlowEditorPage() {
   const router = useRouter();
@@ -26,15 +27,15 @@ export default function FlowEditorPage() {
   const [editingName, setEditingName] = useState(false);
 
   useEffect(() => {
-    if (!flowId) return;
+    if (!flowId || !company?.id) return;
     loadFlow();
-  }, [flowId]);
+  }, [flowId, company?.id]);
 
   const loadFlow = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/flows/detail/${flowId}`);
-      const flow = res.data;
+      const res = await api.get(`/companies/${company?.id}/flows/${flowId}`);
+      const flow = mapFlow(res.data);
       setFlowName(flow.name || '');
       setFlowDescription(flow.description || '');
       setFlowActive(flow.active || false);
@@ -49,10 +50,10 @@ export default function FlowEditorPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.patch(`/flows/${flowId}`, {
+      await api.patch(`/companies/${company?.id}/flows/${flowId}`, {
         name: flowName,
         description: flowDescription,
-        active: flowActive,
+        isActive: flowActive,
         nodes,
         edges,
       });
@@ -67,7 +68,7 @@ export default function FlowEditorPage() {
     const newActive = !flowActive;
     setFlowActive(newActive);
     try {
-      await api.patch(`/flows/${flowId}`, { active: newActive });
+      await api.patch(`/companies/${company?.id}/flows/${flowId}/toggle`);
     } catch {
       setFlowActive(!newActive);
     }

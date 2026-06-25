@@ -7,6 +7,7 @@ import useAuthStore from '@/stores/auth-store';
 import api from '@/lib/api';
 import { Service } from '@/components/schedule/types';
 import { cn, formatCurrency } from '@/lib/utils';
+import { mapService } from '@/lib/api-mappers';
 
 export default function ServicosPage() {
   const { company } = useAuthStore();
@@ -25,8 +26,8 @@ export default function ServicosPage() {
     if (!company?.id) return;
     setLoading(true);
     try {
-      const res = await api.get(`/services/${company.id}`);
-      setServices(Array.isArray(res.data) ? res.data : []);
+      const res = await api.get(`/companies/${company.id}/services`);
+      setServices(Array.isArray(res.data) ? res.data.map(mapService) : []);
     } catch {
       setServices([]);
     } finally {
@@ -36,7 +37,7 @@ export default function ServicosPage() {
 
   const handleToggleActive = async (service: Service) => {
     try {
-      await api.patch(`/services/${service.id}`, { active: !service.active });
+      await api.patch(`/companies/${company?.id}/services/${service.id}/toggle`);
       setServices((prev) =>
         prev.map((s) => (s.id === service.id ? { ...s, active: !s.active } : s)),
       );
@@ -47,7 +48,7 @@ export default function ServicosPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await api.delete(`/services/${id}`);
+      await api.delete(`/companies/${company?.id}/services/${id}`);
       setServices((prev) => prev.filter((s) => s.id !== id));
       setDeletingId(null);
     } catch {

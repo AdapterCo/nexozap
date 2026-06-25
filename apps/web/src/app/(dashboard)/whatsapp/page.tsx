@@ -14,7 +14,7 @@ interface WhatsAppStatus {
 }
 
 export default function WhatsAppPage() {
-  const { token } = useAuthStore();
+  const { company } = useAuthStore();
   const [status, setStatus] = useState<WhatsAppStatus>({ status: 'DISCONNECTED' });
   const [instanceName, setInstanceName] = useState('');
   const [showInstanceInput, setShowInstanceInput] = useState(false);
@@ -23,25 +23,23 @@ export default function WhatsAppPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await api.get('/whatsapp/status', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (!company?.id) return;
+      const response = await api.get(`/companies/${company.id}/whatsapp/status`);
       setStatus(response.data);
     } catch (err) {
       console.error('Erro ao buscar status:', err);
     }
-  }, [token]);
+  }, [company?.id]);
 
   const fetchQrCode = useCallback(async () => {
     try {
-      const response = await api.get('/whatsapp/qrcode', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (!company?.id) return;
+      const response = await api.get(`/companies/${company.id}/whatsapp/qrcode`);
       setStatus((prev) => ({ ...prev, qrCode: response.data.qrCode }));
     } catch (err) {
       console.error('Erro ao buscar QR Code:', err);
     }
-  }, [token]);
+  }, [company?.id]);
 
   useEffect(() => {
     fetchStatus();
@@ -65,11 +63,7 @@ export default function WhatsAppPage() {
     setLoading(true);
     setError('');
     try {
-      await api.post(
-        '/whatsapp/connect',
-        { instanceName: instanceName.trim() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post(`/companies/${company?.id}/whatsapp/connect`);
       setStatus((prev) => ({ ...prev, status: 'RECONNECTING', instanceName: instanceName.trim() }));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erro ao conectar');
@@ -81,11 +75,7 @@ export default function WhatsAppPage() {
   const handleDisconnect = async () => {
     setLoading(true);
     try {
-      await api.post(
-        '/whatsapp/disconnect',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.delete(`/companies/${company?.id}/whatsapp/disconnect`);
       setStatus({ status: 'DISCONNECTED' });
       setInstanceName('');
     } catch (err: any) {

@@ -140,7 +140,6 @@ export default function AppointmentModal({
     setSaving(true);
     try {
       const payload = {
-        companyId: company.id,
         clientName: clientName.trim(),
         clientPhone: clientPhone.replace(/\D/g, ''),
         clientEmail: clientEmail.trim() || undefined,
@@ -148,15 +147,13 @@ export default function AppointmentModal({
         professionalId,
         date: selectedDate,
         startTime: selectedTime,
-        endTime,
         notes: notes.trim() || undefined,
-        status: appointment?.status || 'SCHEDULED',
       };
 
       if (isEditing) {
-        await api.put(`/appointments/${appointment.id}`, payload);
+        await api.patch(`/companies/${company.id}/appointments/${appointment.id}`, payload);
       } else {
-        await api.post('/appointments', payload);
+        await api.post(`/companies/${company.id}/appointments`, payload);
       }
 
       onSave();

@@ -71,4 +71,31 @@ export class CompaniesService {
       },
     });
   }
+
+  async getPlanUsage(id: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      select: { plan: true },
+    });
+    if (!company) throw new NotFoundException('Empresa não encontrada');
+
+    const [appointments, whatsapp, professionals] = await Promise.all([
+      this.prisma.appointment.count({ where: { companyId: id } }),
+      this.prisma.whatsAppConnection.count({ where: { companyId: id } }),
+      this.prisma.professional.count({ where: { companyId: id, isActive: true } }),
+    ]);
+    const limits = {
+      BASIC: { appointments: 500, whatsapp: 1, professionals: 1 },
+      PROFESSIONAL: { appointments: 2000, whatsapp: 3, professionals: 5 },
+      ENTERPRISE: { appointments: null, whatsapp: null, professionals: null },
+    }[company.plan];
+    return {
+      plan: company.plan,
+      limits: {
+        appointments: { used: appointments, max: limits.appointments },
+        whatsapp: { used: whatsapp, max: limits.whatsapp },
+        professionals: { used: professionals, max: limits.professionals },
+      },
+    };
+  }
 }

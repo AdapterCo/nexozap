@@ -18,26 +18,27 @@ export class ClientsController {
   }
 
   @Post('appointments/:id/cancel')
-  async cancelAppointment(@Param('id') id: string) {
-    return this.clientsService.cancelAppointment(id);
+  async cancelAppointment(@Param('id') id: string, @Body('accessToken') accessToken: string) {
+    return this.clientsService.cancelAppointment(id, accessToken);
   }
 
   @Post('appointments/:id/reschedule')
   async reschedule(
     @Param('id') id: string,
-    @Body() body: { newDate: string; newTime: string },
+    @Body() body: { newDate: string; newTime: string; accessToken: string },
   ) {
-    return this.clientsService.reschedule(id, body.newDate, body.newTime);
+    return this.clientsService.reschedule(id, body.newDate, body.newTime, body.accessToken);
   }
 
   @Post('evaluate')
   async createEvaluation(
-    @Body() body: { appointmentId: string; rating: number; comment?: string },
+    @Body() body: { appointmentId: string; rating: number; comment?: string; accessToken: string },
   ) {
     return this.clientsService.createEvaluation(
       body.appointmentId,
       body.rating,
       body.comment,
+      body.accessToken,
     );
   }
 }

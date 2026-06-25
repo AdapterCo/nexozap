@@ -7,6 +7,7 @@ import useAuthStore from '@/stores/auth-store';
 import api from '@/lib/api';
 import { Professional } from '@/components/schedule/types';
 import { cn } from '@/lib/utils';
+import { mapProfessional } from '@/lib/api-mappers';
 
 function getInitials(name: string): string {
   return name
@@ -50,8 +51,8 @@ export default function ProfissionaisPage() {
     if (!company?.id) return;
     setLoading(true);
     try {
-      const res = await api.get(`/professionals/${company.id}`);
-      setProfessionals(Array.isArray(res.data) ? res.data : []);
+      const res = await api.get(`/companies/${company.id}/professionals`);
+      setProfessionals(Array.isArray(res.data) ? res.data.map(mapProfessional) : []);
     } catch {
       setProfessionals([]);
     } finally {
@@ -61,7 +62,7 @@ export default function ProfissionaisPage() {
 
   const handleToggleActive = async (professional: Professional) => {
     try {
-      await api.patch(`/professionals/${professional.id}`, { active: !professional.active });
+      await api.patch(`/companies/${company?.id}/professionals/${professional.id}`, { isActive: !professional.active });
       setProfessionals((prev) =>
         prev.map((p) =>
           p.id === professional.id ? { ...p, active: !p.active } : p,

@@ -9,11 +9,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CompanyAccessGuard } from '../common/guards/company-access.guard';
 import { FlowsService } from './flows.service';
 import { CreateFlowDto } from './dto/create-flow.dto';
 
 @Controller('companies/:companyId/flows')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, CompanyAccessGuard)
 export class FlowsController {
   constructor(private readonly flowsService: FlowsService) {}
 

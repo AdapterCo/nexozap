@@ -18,33 +18,27 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: data.email,
-        password: hashedPassword,
-        name: data.name,
-        role: 'OWNER',
-      },
-    });
-
-    const company = await this.prisma.company.create({
-      data: {
-        name: data.companyName,
-        ownerName: data.name,
-        email: data.email,
-      },
-    });
-
-    await this.prisma.companyUser.create({
-      data: {
-        companyId: company.id,
-        userId: user.id,
-        role: 'OWNER',
-      },
-    });
-
-    await this.prisma.notificationSettings.create({
-      data: { companyId: company.id },
+    const { user, company } = await this.prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: {
+          email: data.email,
+          password: hashedPassword,
+          name: data.name,
+          role: 'OWNER',
+        },
+      });
+      const company = await transaction.company.create({
+        data: {
+          name: data.companyName,
+          ownerName: data.name,
+          email: data.email,
+        },
+      });
+      await transaction.companyUser.create({
+        data: { companyId: company.id, userId: user.id, role: 'OWNER' },
+      });
+      await transaction.notificationSettings.create({ data: { companyId: company.id } });
+      return { user, company };
     });
 
     const token = this.jwtService.sign({ sub: user.id, email: user.email });

@@ -79,16 +79,17 @@ export function PlanInfo() {
 
   useEffect(() => {
     fetchPlan()
-  }, [])
+  }, [company?.id])
 
   const fetchPlan = async () => {
     try {
-      const res = await api.get('/company/plan')
+      if (!company?.id) return
+      const res = await api.get(`/companies/${company.id}/plan`)
       if (res.data) {
-        const planKey = res.data.plan || 'profissional'
+        const planKey = ({ BASIC: 'basico', PROFESSIONAL: 'profissional', ENTERPRISE: 'empresarial' } as Record<string, string>)[res.data.plan] || 'profissional'
         setPlanData({
           ...plans[planKey],
-          limits: res.data.limits || plans[planKey].limits,
+          limits: Object.fromEntries(Object.entries(res.data.limits || {}).map(([key, value]: [string, any]) => [key, { ...value, max: value.max ?? Infinity }])) as PlanDetails['limits'] || plans[planKey].limits,
         })
       }
     } catch {

@@ -11,9 +11,9 @@ import { CreateEvaluationDto } from './dto/create-evaluation.dto';
 export class EvaluationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateEvaluationDto) {
-    const appointment = await this.prisma.appointment.findUnique({
-      where: { id: dto.appointmentId },
+  async create(dto: CreateEvaluationDto, companyId: string) {
+    const appointment = await this.prisma.appointment.findFirst({
+      where: { id: dto.appointmentId, companyId },
       include: { evaluation: true },
     });
 

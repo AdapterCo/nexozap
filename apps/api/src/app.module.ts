@@ -15,12 +15,17 @@ import { RemindersModule } from './reminders/reminders.module';
 import { ReportsModule } from './reports/reports.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
 import { ClientsModule } from './clients/clients.module';
+import { validateEnvironment } from './config/env.validation';
+import { CommonModule } from './common/common.module';
+import { ConversationsModule } from './conversations/conversations.module';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    CommonModule,
     AuthModule,
     CompaniesModule,
     ServicesModule,
@@ -34,6 +39,8 @@ import { ClientsModule } from './clients/clients.module';
     ReportsModule,
     EvaluationsModule,
     ClientsModule,
+    ConversationsModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

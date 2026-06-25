@@ -9,6 +9,7 @@ import { ServicesReport } from '@/components/reports/services-report'
 import { ProfessionalsReport } from '@/components/reports/professionals-report'
 import { AiUsageReport } from '@/components/reports/ai-usage-report'
 import { RevenueReport } from '@/components/reports/revenue-report'
+import useAuthStore from '@/stores/auth-store'
 
 type Tab = 'overview' | 'services' | 'professionals' | 'ai' | 'revenue'
 
@@ -47,6 +48,7 @@ function getDaysAgo(days: number): string {
 }
 
 export default function RelatoriosPage() {
+  const { company } = useAuthStore()
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [from, setFrom] = useState(getDaysAgo(30))
   const [to, setTo] = useState(getToday())
@@ -55,12 +57,13 @@ export default function RelatoriosPage() {
 
   useEffect(() => {
     fetchReport()
-  }, [from, to, activeTab])
+  }, [from, to, activeTab, company?.id])
 
   const fetchReport = async () => {
     try {
       setLoading(true)
-      const res = await api.get('/reports', { params: { from, to, type: activeTab } })
+      if (!company?.id) return
+      const res = await api.get(`/companies/${company.id}/reports`, { params: { dateFrom: from, dateTo: to } })
       setReportData(res.data)
     } catch {
       setReportData(null)

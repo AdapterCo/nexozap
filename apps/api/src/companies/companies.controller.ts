@@ -11,12 +11,12 @@ export class CompaniesController {
 
   @Get()
   async list(@CurrentUser() user: any) {
-    return this.companiesService.listByUserId(user.sub);
+    return this.companiesService.listByUserId(user.id);
   }
 
   @Get(':id')
   async getById(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.companiesService.getById(id, user.sub);
+    return this.companiesService.getById(id, user.id);
   }
 
   @Patch(':id')
@@ -25,7 +25,13 @@ export class CompaniesController {
     @Body() dto: UpdateCompanyDto,
     @CurrentUser() user: any,
   ) {
-    await this.companiesService.getById(id, user.sub);
+    await this.companiesService.getById(id, user.id);
     return this.companiesService.update(id, dto);
+  }
+
+  @Get(':id/plan')
+  async getPlan(@Param('id') id: string, @CurrentUser() user: any) {
+    await this.companiesService.getById(id, user.id);
+    return this.companiesService.getPlanUsage(id);
   }
 }

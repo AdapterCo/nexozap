@@ -5,10 +5,39 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  private createAccessToken(appointmentId: string) {
+    const payload = Buffer.from(JSON.stringify({ appointmentId, exp: Date.now() + 15 * 60_000 })).toString('base64url');
+    const signature = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payload)
+      .digest('base64url');
+    return `${payload}.${signature}`;
+  }
+
+  private assertAccessToken(token: string | undefined, appointmentId: string) {
+    if (!token) throw new BadRequestException('Token de acesso obrigatório');
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) throw new BadRequestException('Token de acesso inválido');
+    const expected = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payload)
+      .digest('base64url');
+    if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      throw new BadRequestException('Token de acesso inválido');
+    }
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { appointmentId: string; exp: number };
+    if (data.appointmentId !== appointmentId || data.exp < Date.now()) {
+      throw new BadRequestException('Token de acesso inválido ou expirado');
+    }
+  }
 
   async findAppointmentsByPhone(phone: string) {
     if (!phone) {
@@ -27,10 +56,14 @@ export class ClientsService {
       orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
     });
 
-    return appointments;
+    return appointments.map((appointment) => ({
+      ...appointment,
+      accessToken: this.createAccessToken(appointment.id),
+    }));
   }
 
-  async cancelAppointment(id: string) {
+  async cancelAppointment(id: string, accessToken?: string) {
+    this.assertAccessToken(accessToken, id);
     const appointment = await this.prisma.appointment.findUnique({
       where: { id },
       include: { service: true, professional: true },
@@ -55,7 +88,8 @@ export class ClientsService {
     });
   }
 
-  async reschedule(id: string, newDate: string, newTime: string) {
+  async reschedule(id: string, newDate: string, newTime: string, accessToken?: string) {
+    this.assertAccessToken(accessToken, id);
     const appointment = await this.prisma.appointment.findUnique({
       where: { id },
       include: { service: true, professional: true },
@@ -129,7 +163,8 @@ export class ClientsService {
     });
   }
 
-  async createEvaluation(appointmentId: string, rating: number, comment?: string) {
+  async createEvaluation(appointmentId: string, rating: number, comment?: string, accessToken?: string) {
+    this.assertAccessToken(accessToken, appointmentId);
     const appointment = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: { evaluation: true },

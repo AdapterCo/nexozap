@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import { Coins, Activity } from 'lucide-react'
 import api from '@/lib/api'
+import useAuthStore from '@/stores/auth-store'
 
 interface UsageDataPoint {
   date: string
@@ -24,17 +25,19 @@ interface UsageSummary {
 }
 
 export function UsageChart() {
+  const { company } = useAuthStore()
   const [data, setData] = useState<UsageDataPoint[]>([])
   const [summary, setSummary] = useState<UsageSummary>({ totalMonth: 0, estimatedCost: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchUsage()
-  }, [])
+  }, [company?.id])
 
   const fetchUsage = async () => {
     try {
-      const res = await api.get('/ai-config/usage/history')
+      if (!company?.id) return
+      const res = await api.get(`/companies/${company.id}/ai-usage`)
       if (res.data?.chart) {
         setData(res.data.chart)
       }
@@ -42,18 +45,8 @@ export function UsageChart() {
         setSummary(res.data.summary)
       }
     } catch {
-      const mockData: UsageDataPoint[] = []
-      const now = new Date()
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(now)
-        d.setDate(d.getDate() - i)
-        mockData.push({
-          date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-          tokens: Math.floor(Math.random() * 8000) + 1000,
-        })
-      }
-      setData(mockData)
-      setSummary({ totalMonth: 185000, estimatedCost: 9.25 })
+      setData([])
+      setSummary({ totalMonth: 0, estimatedCost: 0 })
     } finally {
       setLoading(false)
     }

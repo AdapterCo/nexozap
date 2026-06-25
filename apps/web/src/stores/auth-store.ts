@@ -25,42 +25,27 @@ interface Company {
 interface AuthState {
   user: User | null;
   company: Company | null;
-  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string, companyName: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loadUser: () => Promise<void>;
-}
-
-function setCookie(name: string, value: string, days: number = 7) {
-  if (typeof document === 'undefined') return;
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
-}
-
-function removeCookie(name: string) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
 }
 
 const useAuthStore = create<AuthState>((set) => ({
   user: null,
   company: null,
-  token: typeof window !== 'undefined' ? localStorage.getItem('nexozap_token') : null,
   isAuthenticated: false,
-  isLoading: false,
+  isLoading: true,
 
   login: async (email: string, password: string) => {
     set({ isLoading: true });
     try {
       const response = await api.post('/auth/login', { email, password });
-      const { token, user, company } = response.data;
+      const { user, company } = response.data;
 
-      localStorage.setItem('nexozap_token', token);
-      setCookie('nexozap_token', token);
-      set({ user, company, token, isAuthenticated: true, isLoading: false });
+      set({ user, company, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -76,41 +61,29 @@ const useAuthStore = create<AuthState>((set) => ({
         name,
         companyName,
       });
-      const { token, user, company } = response.data;
+      const { user, company } = response.data;
 
-      localStorage.setItem('nexozap_token', token);
-      setCookie('nexozap_token', token);
-      set({ user, company, token, isAuthenticated: true, isLoading: false });
+      set({ user, company, isAuthenticated: true, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
       throw error;
     }
   },
 
-  logout: () => {
-    localStorage.removeItem('nexozap_token');
-    removeCookie('nexozap_token');
-    set({ user: null, company: null, token: null, isAuthenticated: false });
+  logout: async () => {
+    await api.post('/auth/logout').catch(() => undefined);
+    set({ user: null, company: null, isAuthenticated: false });
   },
 
   loadUser: async () => {
-    const token = localStorage.getItem('nexozap_token');
-    if (!token) {
-      set({ isAuthenticated: false });
-      return;
-    }
-
     set({ isLoading: true });
     try {
       const response = await api.get('/auth/profile');
       const { user, company } = response.data;
 
-      setCookie('nexozap_token', token);
-      set({ user, company, token, isAuthenticated: true, isLoading: false });
+      set({ user, company, isAuthenticated: true, isLoading: false });
     } catch {
-      localStorage.removeItem('nexozap_token');
-      removeCookie('nexozap_token');
-      set({ user: null, company: null, token: null, isAuthenticated: false, isLoading: false });
+      set({ user: null, company: null, isAuthenticated: false, isLoading: false });
     }
   },
 }));

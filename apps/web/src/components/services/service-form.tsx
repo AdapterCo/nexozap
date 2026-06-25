@@ -64,19 +64,18 @@ export default function ServiceForm({ service, onClose, onSave }: ServiceFormPro
     setSaving(true);
     try {
       const payload = {
-        companyId: company.id,
         name: name.trim(),
         description: description.trim() || undefined,
-        duration,
+        durationMinutes: duration,
         price: parseFloat(price) || 0,
         color,
-        active,
+        isActive: active,
       };
 
       if (isEditing) {
-        await api.put(`/services/${service.id}`, payload);
+        await api.patch(`/companies/${company.id}/services/${service.id}`, payload);
       } else {
-        await api.post('/services', payload);
+        await api.post(`/companies/${company.id}/services`, payload);
       }
       onSave();
     } catch {

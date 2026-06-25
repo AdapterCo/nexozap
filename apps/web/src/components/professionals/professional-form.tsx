@@ -6,6 +6,7 @@ import { Professional, Service } from '@/components/schedule/types';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 import useAuthStore from '@/stores/auth-store';
+import { mapService } from '@/lib/api-mappers';
 
 interface ProfessionalFormProps {
   professional: Professional | null;
@@ -88,9 +89,9 @@ export default function ProfessionalForm({
     if (!company?.id) return;
     const fetchServices = async () => {
       try {
-        const res = await api.get(`/services/${company.id}`);
+        const res = await api.get(`/companies/${company.id}/services`);
         setAvailableServices(
-          Array.isArray(res.data) ? res.data.filter((s: Service) => s.active) : [],
+          Array.isArray(res.data) ? res.data.map(mapService).filter((s: Service) => s.active) : [],
         );
       } catch {
         setAvailableServices([]);
@@ -131,20 +132,18 @@ export default function ProfessionalForm({
     setSaving(true);
     try {
       const payload = {
-        companyId: company.id,
         name: name.trim(),
         specialty: specialty.trim() || undefined,
-        workingDays,
-        workingHoursStart,
-        workingHoursEnd,
-        services: selectedServices,
-        active: professional?.active ?? true,
+        availableDays: workingDays,
+        workingHours: { default: { start: workingHoursStart, end: workingHoursEnd } },
+        serviceIds: selectedServices,
+        isActive: professional?.active ?? true,
       };
 
       if (isEditing) {
-        await api.put(`/professionals/${professional.id}`, payload);
+        await api.patch(`/companies/${company.id}/professionals/${professional.id}`, payload);
       } else {
-        await api.post('/professionals', payload);
+        await api.post(`/companies/${company.id}/professionals`, payload);
       }
       onSave();
     } catch {

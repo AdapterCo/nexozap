@@ -81,7 +81,7 @@ export default function DashboardPage() {
       try {
         const [statsRes, chartsRes] = await Promise.all([
           api.get(`/dashboard/${company.id}/stats`),
-          api.get(`/charts/${company.id}`),
+          api.get(`/dashboard/${company.id}/charts`),
         ]);
 
         setStats(statsRes.data);

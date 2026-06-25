@@ -7,10 +7,11 @@ import { cn } from '@/lib/utils'
 
 interface EvaluationModalProps {
   appointmentId: string
+  accessToken: string
   onClose: () => void
 }
 
-export function EvaluationModal({ appointmentId, onClose }: EvaluationModalProps) {
+export function EvaluationModal({ appointmentId, accessToken, onClose }: EvaluationModalProps) {
   const [rating, setRating] = useState(0)
   const [hoveredStar, setHoveredStar] = useState(0)
   const [comment, setComment] = useState('')
@@ -21,7 +22,9 @@ export function EvaluationModal({ appointmentId, onClose }: EvaluationModalProps
     if (rating === 0) return
     try {
       setSubmitting(true)
-      await api.post(`/client/appointments/${appointmentId}/evaluation`, {
+      await api.post('/clients/evaluate', {
+        appointmentId,
+        accessToken,
         rating,
         comment: comment.trim() || undefined,
       })

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Bell, Save, RotateCcw } from 'lucide-react'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
+import useAuthStore from '@/stores/auth-store'
 
 interface NotificationConfig {
   remindersActive: boolean
@@ -22,6 +23,7 @@ const defaultTemplates = {
 }
 
 export function NotificationSettings() {
+  const { company } = useAuthStore()
   const [config, setConfig] = useState<NotificationConfig>({
     remindersActive: true,
     template24h: defaultTemplates.template24h,
@@ -33,17 +35,18 @@ export function NotificationSettings() {
 
   useEffect(() => {
     fetchConfig()
-  }, [])
+  }, [company?.id])
 
   const fetchConfig = async () => {
     try {
-      const res = await api.get('/notifications/config')
+      if (!company?.id) return
+      const res = await api.get(`/companies/${company.id}/notifications/config`)
       if (res.data) {
         setConfig({
-          remindersActive: res.data.remindersActive ?? true,
-          template24h: res.data.template24h || defaultTemplates.template24h,
-          template2h: res.data.template2h || defaultTemplates.template2h,
-          templateAfter: res.data.templateAfter || defaultTemplates.templateAfter,
+          remindersActive: res.data.isEnabled ?? true,
+          template24h: res.data.hours24Message || defaultTemplates.template24h,
+          template2h: res.data.hours2Message || defaultTemplates.template2h,
+          templateAfter: res.data.afterServiceMessage || defaultTemplates.templateAfter,
         })
       }
     } catch {
@@ -58,7 +61,13 @@ export function NotificationSettings() {
   const handleSave = async () => {
     try {
       setSaving(true)
-      await api.put('/notifications/config', config)
+      if (!company?.id) return
+      await api.patch(`/companies/${company.id}/notifications/config`, {
+        isEnabled: config.remindersActive,
+        hours24Message: config.template24h,
+        hours2Message: config.template2h,
+        afterServiceMessage: config.templateAfter,
+      })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch {

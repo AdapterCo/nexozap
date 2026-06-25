@@ -32,7 +32,7 @@ export interface Message {
 }
 
 export default function ConversasPage() {
-  const { token } = useAuthStore();
+  const { company } = useAuthStore();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -47,27 +47,25 @@ export default function ConversasPage() {
       if (filter === 'FLOW') params.append('mode', 'FLOW');
       if (filter === 'HUMAN') params.append('mode', 'HUMAN');
 
-      const response = await api.get(`/conversations?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (!company?.id) return;
+      const response = await api.get(`/companies/${company.id}/conversations?${params.toString()}`);
       setConversations(response.data);
     } catch (err) {
       console.error('Erro ao buscar conversas:', err);
     } finally {
       setLoading(false);
     }
-  }, [token, filter]);
+  }, [company?.id, filter]);
 
   const fetchMessages = useCallback(async (conversationId: string) => {
     try {
-      const response = await api.get(`/conversations/${conversationId}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (!company?.id) return;
+      const response = await api.get(`/companies/${company.id}/conversations/${conversationId}/messages`);
       setMessages(response.data);
     } catch (err) {
       console.error('Erro ao buscar mensagens:', err);
     }
-  }, [token]);
+  }, [company?.id]);
 
   useEffect(() => {
     fetchConversations();
@@ -128,9 +126,8 @@ export default function ConversasPage() {
               if (!selectedConversation) return;
               try {
                 await api.post(
-                  `/conversations/${selectedConversation.id}/messages`,
-                  { content },
-                  { headers: { Authorization: `Bearer ${token}` } }
+                  `/companies/${company?.id}/conversations/${selectedConversation.id}/messages`,
+                  { content }
                 );
                 fetchMessages(selectedConversation.id);
                 fetchConversations();

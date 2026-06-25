@@ -9,7 +9,6 @@ import makeWASocket, {
   proto,
   ConnectionState,
 } from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -25,7 +24,7 @@ export class WhatsAppService implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
   ) {
-    this.sessionsDir = path.resolve(process.cwd(), 'whatsapp-sessions');
+    this.sessionsDir = path.resolve(this.configService.get<string>('SESSIONS_DIR', path.join(process.cwd(), 'whatsapp-sessions')));
     if (!fs.existsSync(this.sessionsDir)) {
       fs.mkdirSync(this.sessionsDir, { recursive: true });
     }
@@ -323,7 +322,13 @@ export class WhatsAppService implements OnModuleDestroy {
     if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
-        const aiService = new AIService(this.prisma, this.httpService, this.configService);
+        const { EncryptionService } = await import('../common/security/encryption.service');
+        const aiService = new AIService(
+          this.prisma,
+          this.httpService,
+          this.configService,
+          new EncryptionService(this.configService),
+        );
         const result = await aiService.chat(conversation.id, messageContent, companyId);
         botResponse = result.response;
       } catch (error) {

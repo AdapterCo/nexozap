@@ -11,9 +11,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private prisma: PrismaService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (request) => {
+          const cookie = request?.headers?.cookie?.split(';').map((item: string) => item.trim()).find((item: string) => item.startsWith('nexozap_token='));
+          return cookie ? decodeURIComponent(cookie.slice('nexozap_token='.length)) : null;
+        },
+      ]),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET', 'nexozap-default-secret'),
+      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
     });
   }
 

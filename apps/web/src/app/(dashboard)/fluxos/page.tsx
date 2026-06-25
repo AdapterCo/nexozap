@@ -6,6 +6,7 @@ import { Plus, Trash2, GitBranch, ArrowRight } from 'lucide-react';
 import useAuthStore from '@/stores/auth-store';
 import api from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
+import { mapFlow } from '@/lib/api-mappers';
 
 interface Flow {
   id: string;
@@ -32,8 +33,8 @@ export default function FluxosPage() {
     if (!company?.id) return;
     setLoading(true);
     try {
-      const res = await api.get(`/flows/${company.id}`);
-      setFlows(Array.isArray(res.data) ? res.data : []);
+      const res = await api.get(`/companies/${company.id}/flows`);
+      setFlows(Array.isArray(res.data) ? res.data.map(mapFlow) : []);
     } catch {
       setFlows([]);
     } finally {
@@ -44,14 +45,14 @@ export default function FluxosPage() {
   const handleToggleActive = async (flow: Flow) => {
     try {
       if (!flow.active) {
-        await api.patch(`/flows/${flow.id}`, { active: true });
+        await api.patch(`/companies/${company?.id}/flows/${flow.id}/toggle`);
         setFlows((prev) =>
           prev.map((f) =>
             f.id === flow.id ? { ...f, active: true } : { ...f, active: false },
           ),
         );
       } else {
-        await api.patch(`/flows/${flow.id}`, { active: false });
+        await api.patch(`/companies/${company?.id}/flows/${flow.id}/toggle`);
         setFlows((prev) => prev.map((f) => (f.id === flow.id ? { ...f, active: false } : f)));
       }
     } catch {
@@ -61,7 +62,7 @@ export default function FluxosPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await api.delete(`/flows/${id}`);
+      await api.delete(`/companies/${company?.id}/flows/${id}`);
       setFlows((prev) => prev.filter((f) => f.id !== id));
       setDeletingId(null);
     } catch {
@@ -72,11 +73,9 @@ export default function FluxosPage() {
   const handleCreate = async () => {
     if (!company?.id) return;
     try {
-      const res = await api.post('/flows', {
-        companyId: company.id,
+      const res = await api.post(`/companies/${company.id}/flows`, {
         name: 'Novo Fluxo',
         description: '',
-        active: false,
         nodes: [
           {
             id: 'start',

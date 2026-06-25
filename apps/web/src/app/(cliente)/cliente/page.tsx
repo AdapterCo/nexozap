@@ -22,6 +22,7 @@ interface Appointment {
   date: string
   time: string
   status: 'agendado' | 'concluido' | 'cancelado' | 'nao_compareceu'
+  accessToken: string
 }
 
 const statusConfig: Record<string, { label: string; color: string }> = {
@@ -36,7 +37,7 @@ export default function ClientePage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [evaluationAppointmentId, setEvaluationAppointmentId] = useState<string | null>(null)
+  const [evaluationAppointment, setEvaluationAppointment] = useState<Appointment | null>(null)
 
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 11)
@@ -51,8 +52,14 @@ export default function ClientePage() {
 
     try {
       setLoading(true)
-      const res = await api.get('/client/appointments', { params: { phone: digits } })
-      setAppointments(res.data?.appointments || [])
+      const res = await api.get('/clients/appointments', { params: { phone: digits } })
+      setAppointments(Array.isArray(res.data) ? res.data.map((item: any) => ({
+        ...item,
+        service: item.service?.name ?? item.service,
+        professional: item.professional?.name ?? item.professional,
+        time: item.startTime ?? item.time,
+        status: ({ SCHEDULED: 'agendado', CONFIRMED: 'agendado', COMPLETED: 'concluido', CANCELLED: 'cancelado', NO_SHOW: 'nao_compareceu' } as Record<string, Appointment['status']>)[item.status] ?? item.status,
+      })) : [])
     } catch {
       setAppointments([])
     } finally {
@@ -63,7 +70,8 @@ export default function ClientePage() {
 
   const handleCancel = async (id: string) => {
     try {
-      await api.put(`/client/appointments/${id}/cancel`)
+      const appointment = appointments.find((item) => item.id === id)
+      await api.post(`/clients/appointments/${id}/cancel`, { accessToken: appointment?.accessToken })
       setAppointments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: 'cancelado' as const } : a))
       )
@@ -177,7 +185,7 @@ export default function ClientePage() {
                       )}
                       {apt.status === 'concluido' && (
                         <button
-                          onClick={() => setEvaluationAppointmentId(apt.id)}
+                          onClick={() => setEvaluationAppointment(apt)}
                           className="flex items-center gap-1 rounded-lg border border-yellow-200 px-3 py-1.5 text-xs font-medium text-yellow-600 hover:bg-yellow-50 transition-colors"
                         >
                           <Star className="h-3 w-3" />
@@ -193,10 +201,11 @@ export default function ClientePage() {
         )}
       </div>
 
-      {evaluationAppointmentId && (
+      {evaluationAppointment && (
         <EvaluationModal
-          appointmentId={evaluationAppointmentId}
-          onClose={() => setEvaluationAppointmentId(null)}
+          appointmentId={evaluationAppointment.id}
+          accessToken={evaluationAppointment.accessToken}
+          onClose={() => setEvaluationAppointment(null)}
         />
       )}
     </div>

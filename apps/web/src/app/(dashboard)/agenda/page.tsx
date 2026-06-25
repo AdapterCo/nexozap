@@ -30,6 +30,7 @@ import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useEffect } from 'react';
 import { Appointment, Professional, Service } from '@/components/schedule/types';
+import { mapProfessional, mapService } from '@/lib/api-mappers';
 
 type ViewType = 'day' | 'week' | 'month';
 
@@ -59,13 +60,13 @@ export default function AgendaPage() {
     setLoading(true);
     try {
       const [appointmentsRes, professionalsRes, servicesRes] = await Promise.all([
-        api.get(`/appointments/${company.id}`).catch(() => ({ data: [] })),
-        api.get(`/professionals/${company.id}`).catch(() => ({ data: [] })),
-        api.get(`/services/${company.id}`).catch(() => ({ data: [] })),
+        api.get(`/companies/${company.id}/appointments`).catch(() => ({ data: [] })),
+        api.get(`/companies/${company.id}/professionals`).catch(() => ({ data: [] })),
+        api.get(`/companies/${company.id}/services`).catch(() => ({ data: [] })),
       ]);
       setAppointments(Array.isArray(appointmentsRes.data) ? appointmentsRes.data : []);
-      setProfessionals(Array.isArray(professionalsRes.data) ? professionalsRes.data : []);
-      setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
+      setProfessionals(Array.isArray(professionalsRes.data) ? professionalsRes.data.map(mapProfessional) : []);
+      setServices(Array.isArray(servicesRes.data) ? servicesRes.data.map(mapService) : []);
     } catch {
       setAppointments([]);
       setProfessionals([]);

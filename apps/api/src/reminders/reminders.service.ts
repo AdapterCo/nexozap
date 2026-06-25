@@ -1,12 +1,44 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigureRemindersDto } from './dto/configure-reminders.dto';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class RemindersService {
   private readonly logger = new Logger(RemindersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsapp: WhatsAppService,
+  ) {}
+
+  private async sendReminder(appointmentId: string, phone: string, companyId: string, type: 'HOURS_24' | 'HOURS_2' | 'AFTER_SERVICE', message: string) {
+    try {
+      await this.whatsapp.sendMessage(phone, message, companyId);
+      await this.prisma.reminder.create({
+        data: { appointmentId, type, message, sentAt: new Date() },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send ${type} reminder for appointment ${appointmentId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getConfig(companyId: string) {
+    return this.prisma.notificationSettings.upsert({
+      where: { companyId },
+      create: { companyId },
+      update: {},
+    });
+  }
+
+  async updateConfig(companyId: string, dto: ConfigureRemindersDto) {
+    return this.prisma.notificationSettings.upsert({
+      where: { companyId },
+      create: { companyId, ...dto },
+      update: dto,
+    });
+  }
 
   @Cron('*/30 * * * *')
   async checkReminders() {
@@ -45,22 +77,14 @@ export class RemindersService {
 
     for (const appointment of appointments) {
       const settings = appointment.company.notificationSettings;
+      if (settings && !settings.isEnabled) continue;
       const message = (settings?.hours24Message ||
         'Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
         .replace('{hora}', appointment.startTime)
         .replace('{serviço}', appointment.service.name)
         .replace('{profissional}', appointment.professional.name);
 
-      await this.prisma.reminder.create({
-        data: {
-          appointmentId: appointment.id,
-          type: 'HOURS_24',
-          message,
-          sentAt: new Date(),
-        },
-      });
-
-      this.logger.log(`24h reminder created for appointment ${appointment.id}`);
+      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_24', message);
     }
   }
 
@@ -92,22 +116,14 @@ export class RemindersService {
 
     for (const appointment of appointments) {
       const settings = appointment.company.notificationSettings;
+      if (settings && !settings.isEnabled) continue;
       const message = (settings?.hours2Message ||
         'Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
         .replace('{hora}', appointment.startTime)
         .replace('{serviço}', appointment.service.name)
         .replace('{profissional}', appointment.professional.name);
 
-      await this.prisma.reminder.create({
-        data: {
-          appointmentId: appointment.id,
-          type: 'HOURS_2',
-          message,
-          sentAt: new Date(),
-        },
-      });
-
-      this.logger.log(`2h reminder created for appointment ${appointment.id}`);
+      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_2', message);
     }
   }
 
@@ -138,20 +154,12 @@ export class RemindersService {
 
     for (const appointment of appointments) {
       const settings = appointment.company.notificationSettings;
+      if (settings && !settings.isEnabled) continue;
       const message =
         settings?.afterServiceMessage ||
         'Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.';
 
-      await this.prisma.reminder.create({
-        data: {
-          appointmentId: appointment.id,
-          type: 'AFTER_SERVICE',
-          message,
-          sentAt: new Date(),
-        },
-      });
-
-      this.logger.log(`After-service reminder created for appointment ${appointment.id}`);
+      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'AFTER_SERVICE', message);
     }
   }
 }

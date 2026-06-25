@@ -14,11 +14,8 @@ export default function DashboardGroupLayout({
   const { isAuthenticated, isLoading, loadUser } = useAuthStore();
 
   useEffect(() => {
-    const token = localStorage.getItem('nexozap_token');
-    if (token && !isAuthenticated) {
-      loadUser();
-    }
-  }, [isAuthenticated, loadUser]);
+    loadUser();
+  }, [loadUser]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

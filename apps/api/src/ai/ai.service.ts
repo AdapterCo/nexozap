@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AIConfigDto, AIProviderDto, TestKeyDto } from './dto/ai-config.dto';
+import { EncryptionService } from '../common/security/encryption.service';
 
 @Injectable()
 export class AIService {
@@ -18,6 +19,7 @@ export class AIService {
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly encryption: EncryptionService,
   ) {}
 
   private get http(): HttpService {
@@ -35,7 +37,7 @@ export class AIService {
 
     return {
       ...config,
-      apiKey: config.apiKey ? '••••••' + config.apiKey.slice(-4) : null,
+      apiKey: config.apiKey ? '••••••' + this.encryption.decrypt(config.apiKey).slice(-4) : null,
     };
   }
 
@@ -47,7 +49,7 @@ export class AIService {
     const data: any = {};
     if (dto.provider !== undefined) data.provider = dto.provider;
     if (dto.model !== undefined) data.model = dto.model;
-    if (dto.apiKey !== undefined && dto.apiKey !== '') data.apiKey = dto.apiKey;
+    if (dto.apiKey !== undefined && dto.apiKey !== '') data.apiKey = this.encryption.encrypt(dto.apiKey);
     if (dto.personality !== undefined) data.personality = dto.personality;
     if (dto.toneOfVoice !== undefined) data.toneOfVoice = dto.toneOfVoice;
     if (dto.rules !== undefined) data.rules = dto.rules;
@@ -70,7 +72,7 @@ export class AIService {
         companyId,
         provider: dto.provider || 'OPENAI',
         model: dto.model || 'gpt-4o-mini',
-        apiKey: dto.apiKey,
+        apiKey: dto.apiKey ? this.encryption.encrypt(dto.apiKey) : undefined,
         personality: dto.personality,
         toneOfVoice: dto.toneOfVoice,
         rules: dto.rules || [],
@@ -114,6 +116,33 @@ export class AIService {
     const allowed = dailyUsed < config.dailyTokenLimit && monthlyUsed < config.monthlyTokenLimit;
 
     return { allowed, dailyUsed, monthlyUsed };
+  }
+
+  async getUsageHistory(companyId: string) {
+    const start = new Date();
+    start.setDate(start.getDate() - 29);
+    start.setHours(0, 0, 0, 0);
+    const usage = await this.prisma.tokenUsage.findMany({
+      where: { companyId, date: { gte: start } },
+      orderBy: { date: 'asc' },
+    });
+    const days = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      days.set(day.toISOString().slice(0, 10), 0);
+    }
+    usage.forEach((item) => {
+      const key = item.date.toISOString().slice(0, 10);
+      days.set(key, (days.get(key) ?? 0) + item.tokensUsed);
+    });
+    return {
+      chart: [...days].map(([date, tokens]) => ({ date, tokens })),
+      summary: {
+        totalMonth: usage.reduce((sum, item) => sum + item.tokensUsed, 0),
+        estimatedCost: usage.reduce((sum, item) => sum + item.cost, 0),
+      },
+    };
   }
 
   async testKey(dto: TestKeyDto): Promise<{ valid: boolean; provider: string; model?: string; error?: string }> {
@@ -216,7 +245,7 @@ export class AIService {
     const systemPrompt = this.buildSystemPrompt(config, company, services, professionals);
     const provider = (config?.provider as AIProviderDto) || AIProviderDto.OPENAI;
     const model = config?.model || this.getDefaultModel(provider);
-    const apiKey = config?.apiKey;
+    const apiKey = config?.apiKey ? this.encryption.decrypt(config.apiKey) : null;
 
     if (!apiKey) {
       throw new BadRequestException(

@@ -9,6 +9,11 @@ services:
       POSTGRES_DB: nexozap
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nexozap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - nexozap_internal
 
@@ -18,6 +23,11 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - nexozap_internal
 
@@ -40,10 +50,17 @@ services:
       API_URL: api.${DOMAIN:-nexozap.adapterco.com.br}
       SESSIONS_DIR: /app/whatsapp-sessions
     depends_on:
-      - db
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     volumes:
       - whatsapp_sessions:/app/whatsapp-sessions
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"
@@ -75,7 +92,13 @@ services:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: "http://api:3001"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3017/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"
@@ -90,6 +113,20 @@ services:
     networks:
       - nexozap_internal
       - traefik9
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/nexozap?schema=public
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - nexozap_internal
 
 volumes:
   pgdata:

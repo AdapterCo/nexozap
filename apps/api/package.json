@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "jest --runInBand"
   },
   "dependencies": {
     "@nestjs/axios": "^3.1.0",
