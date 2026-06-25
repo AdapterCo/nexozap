@@ -37,7 +37,7 @@ const useAuthStore = create<AuthState>((set) => ({
   user: null,
   company: null,
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: false,
 
   login: async (email: string, password: string) => {
     set({ isLoading: true });

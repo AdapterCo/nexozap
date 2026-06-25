@@ -13,7 +13,17 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        const currentPath = window.location.pathname;
+        const requestUrl = error.config?.url || '';
+        const isAuthPage = currentPath === '/login' || currentPath === '/register';
+        const isAuthRequest =
+          requestUrl.includes('/auth/login') ||
+          requestUrl.includes('/auth/register') ||
+          requestUrl.includes('/auth/logout');
+
+        if (!isAuthPage && !isAuthRequest) {
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

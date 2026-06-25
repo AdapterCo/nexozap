@@ -42,7 +42,7 @@ export default function RegisterPage() {
     setError(null);
     try {
       await registerUser(data.email, data.password, data.name, data.companyName);
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erro ao criar conta. Tente novamente.');
     }

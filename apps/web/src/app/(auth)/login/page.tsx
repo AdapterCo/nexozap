@@ -34,7 +34,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(data.email, data.password);
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'E-mail ou senha incorretos');
     }

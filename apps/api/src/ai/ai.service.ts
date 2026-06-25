@@ -37,7 +37,7 @@ export class AIService {
 
     return {
       ...config,
-      apiKey: config.apiKey ? '••••••' + this.encryption.decrypt(config.apiKey).slice(-4) : null,
+      apiKey: config.apiKey ? this.maskApiKey(config.apiKey) : null,
     };
   }
 
@@ -49,7 +49,9 @@ export class AIService {
     const data: any = {};
     if (dto.provider !== undefined) data.provider = dto.provider;
     if (dto.model !== undefined) data.model = dto.model;
-    if (dto.apiKey !== undefined && dto.apiKey !== '') data.apiKey = this.encryption.encrypt(dto.apiKey);
+    if (dto.apiKey !== undefined && dto.apiKey !== '' && !this.isMaskedApiKey(dto.apiKey)) {
+      data.apiKey = this.encryption.encrypt(dto.apiKey);
+    }
     if (dto.personality !== undefined) data.personality = dto.personality;
     if (dto.toneOfVoice !== undefined) data.toneOfVoice = dto.toneOfVoice;
     if (dto.rules !== undefined) data.rules = dto.rules;
@@ -72,7 +74,7 @@ export class AIService {
         companyId,
         provider: dto.provider || 'OPENAI',
         model: dto.model || 'gpt-4o-mini',
-        apiKey: dto.apiKey ? this.encryption.encrypt(dto.apiKey) : undefined,
+        apiKey: dto.apiKey && !this.isMaskedApiKey(dto.apiKey) ? this.encryption.encrypt(dto.apiKey) : undefined,
         personality: dto.personality,
         toneOfVoice: dto.toneOfVoice,
         rules: dto.rules || [],
@@ -84,6 +86,19 @@ export class AIService {
         allowedHoursEnd: dto.allowedHoursEnd ?? '22:00',
       },
     });
+  }
+
+  private maskApiKey(value: string) {
+    try {
+      const decrypted = this.encryption.decrypt(value);
+      return `••••••${decrypted.slice(-4)}`;
+    } catch {
+      return '••••••';
+    }
+  }
+
+  private isMaskedApiKey(value: string) {
+    return value.trim().startsWith('••••••');
   }
 
   async checkTokenLimit(companyId: string): Promise<{ allowed: boolean; dailyUsed: number; monthlyUsed: number }> {
