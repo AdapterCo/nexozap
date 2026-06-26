@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { EncryptionService } from '../common/security/encryption.service';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -27,6 +28,7 @@ export class WhatsAppService implements OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
+    private readonly encryption: EncryptionService,
   ) {
     this.sessionsDir = path.resolve(
       this.configService.get<string>('SESSIONS_DIR', path.join(process.cwd(), 'whatsapp-sessions')),
@@ -317,7 +319,7 @@ export class WhatsAppService implements OnModuleDestroy {
     if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
-        const aiService = new AIService(this.prisma, this.httpService, this.configService);
+        const aiService = new AIService(this.prisma, this.httpService, this.configService, this.encryption);
         const result = await aiService.chat(conversation.id, content, companyId);
         botResponse = result.response;
       } catch (error) {

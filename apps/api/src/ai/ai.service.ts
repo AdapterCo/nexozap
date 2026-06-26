@@ -19,7 +19,7 @@ export class AIService {
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-    private readonly encryption: EncryptionService,
+    private readonly encryption?: EncryptionService,
   ) {}
 
   private get http(): HttpService {
