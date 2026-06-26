@@ -1,7 +1,10 @@
 const path = require('path');
 
 /** @type {import('next').NextConfig} */
-const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const apiBase =
+  process.env.INTERNAL_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:3001';
 
 const nextConfig = {
   output: 'standalone',
