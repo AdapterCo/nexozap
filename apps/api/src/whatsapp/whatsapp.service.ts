@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as QRCode from 'qrcode';
 
 @Injectable()
-export class WhatsAppService implements OnModuleDestroy {
+export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private readonly sessionsDir: string;
   private connections: Map<string, WASocket> = new Map();
@@ -35,6 +35,30 @@ export class WhatsAppService implements OnModuleDestroy {
     );
     if (!fs.existsSync(this.sessionsDir)) {
       fs.mkdirSync(this.sessionsDir, { recursive: true });
+    }
+  }
+
+  async onModuleInit() {
+    // Aguarda um pequeno delay no boot para permitir que a API inicialize e então auto-reconecta sessões ativas
+    setTimeout(() => {
+      this.reconnectActiveSessions().catch((err) => {
+        this.logger.error(`Erro ao reconectar sessões ativas no startup: ${err.message}`);
+      });
+    }, 5000);
+  }
+
+  private async reconnectActiveSessions() {
+    const activeConns = await this.prisma.whatsAppConnection.findMany({
+      where: { status: 'CONNECTED' },
+    });
+    this.logger.log(`Encontradas ${activeConns.length} conexões ativas para reconectar.`);
+    for (const conn of activeConns) {
+      try {
+        this.logger.log(`Autoreconectando empresa ${conn.companyId}...`);
+        await this.connect(conn.companyId);
+      } catch (err) {
+        this.logger.error(`Falha ao autoreconectar ${conn.companyId}: ${err.message}`);
+      }
     }
   }
 
@@ -60,6 +84,13 @@ export class WhatsAppService implements OnModuleDestroy {
     if (this.reconnectTimers.has(companyId)) {
       clearTimeout(this.reconnectTimers.get(companyId));
       this.reconnectTimers.delete(companyId);
+    }
+
+    const existingSock = this.connections.get(companyId);
+    if (existingSock) {
+      this.logger.log(`Fechando conexão anterior existente para ${companyId} antes de iniciar uma nova.`);
+      try { existingSock.end(undefined); } catch {}
+      this.connections.delete(companyId);
     }
 
     this.connectionStatus.set(companyId, 'connecting');
@@ -94,14 +125,30 @@ export class WhatsAppService implements OnModuleDestroy {
       saveCreds = authResult.saveCreds;
     }
 
-    const { version } = await fetchLatestBaileysVersion();
+    let version: [number, number, number] = [2, 3000, 1015947307];
+    try {
+      const latest = await fetchLatestBaileysVersion();
+      version = latest.version;
+    } catch (err) {
+      this.logger.warn(`Erro ao buscar versão mais recente do Baileys para ${companyId}, usando fallback: ${err.message}`);
+    }
 
-    const sock = makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: false,
-      logger: { level: 'silent' } as any,
-    });
+    let sock: WASocket;
+    try {
+      sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: { level: 'silent' } as any,
+      });
+    } catch (err) {
+      this.logger.error(`Erro ao criar socket do Baileys para ${companyId}: ${err.message}`);
+      if (fs.existsSync(authFolder)) {
+        this.logger.log(`Limpando pasta de sessão corrompida para ${companyId}`);
+        fs.rmSync(authFolder, { recursive: true, force: true });
+      }
+      throw err;
+    }
 
     this.connections.set(companyId, sock);
 
@@ -225,7 +272,12 @@ export class WhatsAppService implements OnModuleDestroy {
         return { status: 'DISCONNECTED', phone: null };
       }
       if (conn.status === 'CONNECTED') {
-        return { status: 'CONNECTED', phone: conn.phone };
+        // Se consta como CONNECTED no banco mas o socket não está ativo na memória, sincroniza para DISCONNECTED
+        await this.prisma.whatsAppConnection.update({
+          where: { id: conn.id },
+          data: { status: 'DISCONNECTED', qrcode: null },
+        });
+        return { status: 'DISCONNECTED', phone: null };
       }
     }
 

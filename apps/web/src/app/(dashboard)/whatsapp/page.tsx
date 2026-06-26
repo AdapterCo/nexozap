@@ -34,7 +34,7 @@ export default function WhatsAppPage() {
       setStatus((prev) => ({
         status: data.status || 'DISCONNECTED',
         phone: data.phone || null,
-        qrCode: data.qrCode || null,
+        qrCode: data.qrCode || prev.qrCode || null,
       }));
     } catch (err: any) {
       addLog(`Erro ao buscar status: ${err.message}`);
