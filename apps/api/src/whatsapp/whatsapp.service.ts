@@ -14,6 +14,7 @@ import makeWASocket, {
 import * as path from 'path';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
+import pino from 'pino';
 
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
@@ -64,7 +65,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     for (const [companyId, sock] of this.connections) {
-      try { sock.end(undefined); } catch {}
+      try {
+        sock.end(undefined);
+      } catch (error) {
+        this.logger.warn(`Erro ao finalizar socket da empresa ${companyId}: ${error.message}`);
+      }
     }
     for (const [, timer] of this.reconnectTimers) {
       clearTimeout(timer);
@@ -89,7 +94,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const existingSock = this.connections.get(companyId);
     if (existingSock) {
       this.logger.log(`Fechando conexão anterior existente para ${companyId} antes de iniciar uma nova.`);
-      try { existingSock.end(undefined); } catch {}
+      try {
+        existingSock.end(undefined);
+      } catch (error) {
+        this.logger.warn(`Erro ao fechar socket anterior para ${companyId}: ${error.message}`);
+      }
       this.connections.delete(companyId);
     }
 
@@ -100,6 +109,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     this.startSocket(companyId).catch((err) => {
       this.logger.error(`Falha ao iniciar socket para ${companyId}: ${err.message}`);
+      this.connectionStatus.set(companyId, 'disconnected');
+      this.upsertConnection(companyId, 'DISCONNECTED', { qrcode: null }).catch((error) => {
+        this.logger.error(`Falha ao atualizar status desconectado para ${companyId}: ${error.message}`);
+      });
     });
 
     return { status: 'RECONNECTING', message: 'Conectando... escaneie o QR Code' };
@@ -139,7 +152,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         version,
         auth: state,
         printQRInTerminal: false,
-        logger: { level: 'silent' } as any,
+        logger: pino({ level: 'silent' }),
       });
     } catch (err) {
       this.logger.error(`Erro ao criar socket do Baileys para ${companyId}: ${err.message}`);
@@ -292,7 +305,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const sock = this.connections.get(companyId);
     if (sock) {
-      try { sock.end(undefined); } catch {}
+      try {
+        sock.end(undefined);
+      } catch (error) {
+        this.logger.warn(`Erro ao encerrar socket da empresa ${companyId}: ${error.message}`);
+      }
       this.connections.delete(companyId);
       this.qrCodes.delete(companyId);
       this.connectionStatus.delete(companyId);
