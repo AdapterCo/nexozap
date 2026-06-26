@@ -49,115 +49,77 @@ export class WhatsAppService implements OnModuleDestroy {
     });
 
     if (this.connections.has(companyId)) {
+      const sock = this.connections.get(companyId);
+      if (sock?.user) {
+        return {
+          status: 'CONNECTED',
+          message: 'Sessão já está ativa e conectada',
+          phone: existing?.phone || null,
+        };
+      }
+
+      // Sessão existe em memória mas não está autenticada, verifica QR
+      const qr = this.qrCodes.get(companyId);
+      if (qr) {
+        const qrData = await this.formatQRCode(qr);
+        return {
+          status: 'RECONNECTING',
+          message: 'Escaneie o QR Code para conectar',
+          ...qrData,
+        };
+      }
+
       return {
-        status: existing?.status || 'CONNECTED',
-        message: 'Sessão já está ativa',
+        status: existing?.status || 'RECONNECTING',
+        message: 'Aguardando geração do QR Code...',
       };
     }
 
     const sessionDir = path.join(this.sessionsDir, companyId);
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    let state: any;
+    let saveCreds: () => Promise<void>;
 
-    const sock = makeWASocket({
-      auth: state,
-      printQRInTerminal: true,
-      browser: ['NexoZap', 'Chrome', '4.0.0'],
-      generateHighQualityLinkPreview: false,
-    });
+    try {
+      const authResult = await useMultiFileAuthState(sessionDir);
+      state = authResult.state;
+      saveCreds = authResult.saveCreds;
+    } catch (error) {
+      this.logger.error(`Erro ao carregar estado de autenticação para ${companyId}: ${error.message}`);
+      // Limpar sessão corrompida e tentar novamente
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+      const authResult = await useMultiFileAuthState(sessionDir);
+      state = authResult.state;
+      saveCreds = authResult.saveCreds;
+    }
+
+    let sock: WASocket;
+    try {
+      sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true,
+        browser: ['NexoZap', 'Chrome', '4.0.0'],
+        generateHighQualityLinkPreview: false,
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao criar socket WhatsApp para ${companyId}: ${error.message}`);
+      throw new Error(`Falha ao iniciar conexão WhatsApp: ${error.message}`);
+    }
 
     this.connections.set(companyId, sock);
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        this.qrCodes.set(companyId, qr);
-        const existingConn = await this.prisma.whatsAppConnection.findFirst({
-          where: { companyId },
-        });
-        if (existingConn) {
-          await this.prisma.whatsAppConnection.update({
-            where: { id: existingConn.id },
-            data: { status: 'RECONNECTING', qrcode: qr },
-          });
-        } else {
-          await this.prisma.whatsAppConnection.create({
-            data: {
-              companyId,
-              instanceName: companyId,
-              status: 'RECONNECTING',
-              qrcode: qr,
-            },
-          });
-        }
-        this.logger.log(`QR Code generated for company ${companyId}`);
-      }
-
-      if (connection === 'close') {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-        const restartRequired = statusCode === DisconnectReason.restartRequired;
-
-        this.logger.log(`Connection closed for ${companyId}, status: ${statusCode}, reconnect: ${shouldReconnect}`);
-
-        await this.prisma.whatsAppConnection.updateMany({
-          where: { companyId },
-          data: { status: restartRequired || shouldReconnect ? 'RECONNECTING' : 'DISCONNECTED', qrcode: null },
-        });
-
-        this.connections.delete(companyId);
-        this.qrCodes.delete(companyId);
-
-        if (shouldReconnect) {
-          setTimeout(() => this.connect(companyId), restartRequired ? 1000 : 5000);
-        }
-      }
-
-      if (connection === 'open') {
-        const phone = sock.user?.id?.replace(/:.*@/, '@')?.split('@')[0] || '';
-
-        const existingConn2 = await this.prisma.whatsAppConnection.findFirst({
-          where: { companyId },
-        });
-        if (existingConn2) {
-          await this.prisma.whatsAppConnection.update({
-            where: { id: existingConn2.id },
-            data: { status: 'CONNECTED', qrcode: null, phone },
-          });
-        } else {
-          await this.prisma.whatsAppConnection.create({
-            data: {
-              companyId,
-              instanceName: companyId,
-              status: 'CONNECTED',
-              phone,
-            },
-          });
-        }
-
-        this.qrCodes.delete(companyId);
-        this.logger.log(`Connected for company ${companyId}, phone: ${phone}`);
-      }
-    });
-
-    sock.ev.on('messages.upsert', async (messageUpdate) => {
-      if (messageUpdate.type !== 'notify') return;
-
-      for (const msg of messageUpdate.messages) {
-        await this.handleIncomingMessage(companyId, msg);
-      }
-    });
-
-    const existingConn3 = await this.prisma.whatsAppConnection.findFirst({
+    // Criar/atualizar registro no banco ANTES de esperar o QR
+    const existingConn = await this.prisma.whatsAppConnection.findFirst({
       where: { companyId },
     });
-    if (existingConn3) {
+    if (existingConn) {
       await this.prisma.whatsAppConnection.update({
-        where: { id: existingConn3.id },
-        data: { status: 'RECONNECTING', instanceName: companyId },
+        where: { id: existingConn.id },
+        data: { status: 'RECONNECTING', instanceName: companyId, qrcode: null },
       });
     } else {
       await this.prisma.whatsAppConnection.create({
@@ -169,7 +131,169 @@ export class WhatsAppService implements OnModuleDestroy {
       });
     }
 
-    return { status: 'RECONNECTING', message: 'Conectando... escaneie o QR Code' };
+    // Configurar event listeners
+    this.setupConnectionEvents(companyId, sock);
+    this.setupMessageHandler(companyId, sock);
+
+    // Esperar até 15 segundos pelo primeiro QR Code
+    const qrCode = await this.waitForQRCode(companyId, 15000);
+
+    if (qrCode) {
+      const qrData = await this.formatQRCode(qrCode);
+      return {
+        status: 'RECONNECTING',
+        message: 'Escaneie o QR Code para conectar',
+        ...qrData,
+      };
+    }
+
+    // Verificar se conectou diretamente (sessão salva)
+    if (sock.user) {
+      return {
+        status: 'CONNECTED',
+        message: 'Conectado com sessão existente',
+        phone: sock.user?.id?.replace(/:.*@/, '@')?.split('@')[0] || '',
+      };
+    }
+
+    return { status: 'RECONNECTING', message: 'Conectando... aguarde o QR Code' };
+  }
+
+  private waitForQRCode(companyId: string, timeoutMs: number): Promise<string | null> {
+    return new Promise((resolve) => {
+      // Verificar se já existe um QR
+      const existing = this.qrCodes.get(companyId);
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+
+      const checkInterval = setInterval(() => {
+        const qr = this.qrCodes.get(companyId);
+        if (qr) {
+          clearInterval(checkInterval);
+          clearTimeout(timeout);
+          resolve(qr);
+        }
+      }, 500);
+
+      const timeout = setTimeout(() => {
+        clearInterval(checkInterval);
+        this.logger.warn(`Timeout aguardando QR Code para ${companyId} (${timeoutMs}ms)`);
+        resolve(null);
+      }, timeoutMs);
+
+      // Se a conexão abrir antes do timeout (sessão salva), resolver
+      const sock = this.connections.get(companyId);
+      if (sock) {
+        const originalHandler = sock.ev.listeners?.('connection.update');
+        const checkConnection = () => {
+          if (sock.user) {
+            clearInterval(checkInterval);
+            clearTimeout(timeout);
+            resolve(null);
+          }
+        };
+        const connInterval = setInterval(checkConnection, 500);
+        setTimeout(() => clearInterval(connInterval), timeoutMs);
+      }
+    });
+  }
+
+  private setupConnectionEvents(companyId: string, sock: WASocket) {
+    sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      this.logger.log(`Connection update for ${companyId}: connection=${connection}, hasQR=${!!qr}`);
+
+      if (qr) {
+        this.qrCodes.set(companyId, qr);
+        try {
+          const existingConn = await this.prisma.whatsAppConnection.findFirst({
+            where: { companyId },
+          });
+          if (existingConn) {
+            await this.prisma.whatsAppConnection.update({
+              where: { id: existingConn.id },
+              data: { status: 'RECONNECTING', qrcode: qr },
+            });
+          }
+          this.logger.log(`QR Code gerado e salvo para empresa ${companyId}`);
+        } catch (error) {
+          this.logger.error(`Erro ao salvar QR Code no banco para ${companyId}: ${error.message}`);
+        }
+      }
+
+      if (connection === 'close') {
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const restartRequired = statusCode === DisconnectReason.restartRequired;
+
+        this.logger.log(`Conexão fechada para ${companyId}, status: ${statusCode}, reconectar: ${shouldReconnect}`);
+
+        try {
+          await this.prisma.whatsAppConnection.updateMany({
+            where: { companyId },
+            data: { status: restartRequired || shouldReconnect ? 'RECONNECTING' : 'DISCONNECTED', qrcode: null },
+          });
+        } catch (error) {
+          this.logger.error(`Erro ao atualizar status de desconexão para ${companyId}: ${error.message}`);
+        }
+
+        this.connections.delete(companyId);
+        this.qrCodes.delete(companyId);
+
+        if (shouldReconnect) {
+          const delay = restartRequired ? 1000 : 5000;
+          this.logger.log(`Reconectando ${companyId} em ${delay}ms...`);
+          setTimeout(() => this.connect(companyId), delay);
+        }
+      }
+
+      if (connection === 'open') {
+        const phone = sock.user?.id?.replace(/:.*@/, '@')?.split('@')[0] || '';
+
+        try {
+          const existingConn = await this.prisma.whatsAppConnection.findFirst({
+            where: { companyId },
+          });
+          if (existingConn) {
+            await this.prisma.whatsAppConnection.update({
+              where: { id: existingConn.id },
+              data: { status: 'CONNECTED', qrcode: null, phone },
+            });
+          } else {
+            await this.prisma.whatsAppConnection.create({
+              data: {
+                companyId,
+                instanceName: companyId,
+                status: 'CONNECTED',
+                phone,
+              },
+            });
+          }
+        } catch (error) {
+          this.logger.error(`Erro ao atualizar status de conexão para ${companyId}: ${error.message}`);
+        }
+
+        this.qrCodes.delete(companyId);
+        this.logger.log(`Conectado para empresa ${companyId}, telefone: ${phone}`);
+      }
+    });
+  }
+
+  private setupMessageHandler(companyId: string, sock: WASocket) {
+    sock.ev.on('messages.upsert', async (messageUpdate) => {
+      if (messageUpdate.type !== 'notify') return;
+
+      for (const msg of messageUpdate.messages) {
+        try {
+          await this.handleIncomingMessage(companyId, msg);
+        } catch (error) {
+          this.logger.error(`Erro ao processar mensagem recebida para ${companyId}: ${error.message}`);
+        }
+      }
+    });
   }
 
   async getQRCode(companyId: string) {
@@ -190,13 +314,18 @@ export class WhatsAppService implements OnModuleDestroy {
   }
 
   private async formatQRCode(qr: string) {
-    const qrCode = await QRCode.toDataURL(qr, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 320,
-    });
+    try {
+      const qrCode = await QRCode.toDataURL(qr, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 320,
+      });
 
-    return { qrcode: qr, qrCode };
+      return { qrcode: qr, qrCode };
+    } catch (error) {
+      this.logger.error(`Erro ao gerar imagem do QR Code: ${error.message}`);
+      return { qrcode: qr, qrCode: null, message: 'Erro ao renderizar QR Code' };
+    }
   }
 
   async getStatus(companyId: string) {
@@ -209,8 +338,13 @@ export class WhatsAppService implements OnModuleDestroy {
     }
 
     if (connection.status === 'RECONNECTING' && connection.qrcode) {
-      const qr = await this.formatQRCode(connection.qrcode);
-      return { status: 'RECONNECTING', phone: connection.phone, ...qr };
+      try {
+        const qr = await this.formatQRCode(connection.qrcode);
+        return { status: 'RECONNECTING', phone: connection.phone, ...qr };
+      } catch (error) {
+        this.logger.error(`Erro ao formatar QR Code no status para ${companyId}: ${error.message}`);
+        return { status: 'RECONNECTING', phone: connection.phone };
+      }
     }
 
     const sock = this.connections.get(companyId);
@@ -242,7 +376,7 @@ export class WhatsAppService implements OnModuleDestroy {
       try {
         sock.end(undefined);
       } catch (error) {
-        this.logger.warn(`Error ending session: ${error.message}`);
+        this.logger.warn(`Erro ao encerrar sessão: ${error.message}`);
       }
       this.connections.delete(companyId);
       this.qrCodes.delete(companyId);
@@ -273,7 +407,7 @@ export class WhatsAppService implements OnModuleDestroy {
 
     await sock.sendMessage(jid, { text: message });
 
-    this.logger.log(`Message sent to ${phone} for company ${companyId}`);
+    this.logger.log(`Mensagem enviada para ${phone} da empresa ${companyId}`);
   }
 
   private async handleIncomingMessage(companyId: string, msg: proto.IWebMessageInfo) {
@@ -339,17 +473,15 @@ export class WhatsAppService implements OnModuleDestroy {
     if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
-        const { EncryptionService } = await import('../common/security/encryption.service');
         const aiService = new AIService(
           this.prisma,
           this.httpService,
           this.configService,
-          new EncryptionService(this.configService),
         );
         const result = await aiService.chat(conversation.id, messageContent, companyId);
         botResponse = result.response;
       } catch (error) {
-        this.logger.error(`AI chat failed: ${error.message}`);
+        this.logger.error(`Falha no chat com IA: ${error.message}`);
         botResponse = 'Desculpe, estou com dificuldades no momento. Por favor, tente novamente.';
       }
     } else if (conversation.mode === 'FLOW') {
@@ -364,7 +496,7 @@ export class WhatsAppService implements OnModuleDestroy {
           const result = await flowsService.execute(conversation.id, messageContent, companyId);
           botResponse = result.response;
         } catch (error) {
-          this.logger.error(`Flow execution failed: ${error.message}`);
+          this.logger.error(`Falha na execução do fluxo: ${error.message}`);
           botResponse = 'Desculpe, ocorreu um erro. Por favor, tente novamente.';
         }
       } else {

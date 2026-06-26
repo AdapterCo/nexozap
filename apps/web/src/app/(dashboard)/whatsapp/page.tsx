@@ -73,9 +73,20 @@ export default function WhatsAppPage() {
     setError('');
 
     try {
-      await api.post(`/companies/${company.id}/whatsapp/connect`);
-      setStatus((prev) => ({ ...prev, status: 'RECONNECTING', qrCode: null }));
-      await fetchQrCode();
+      const response = await api.post(`/companies/${company.id}/whatsapp/connect`);
+      const data = response.data;
+
+      // Usar QR Code retornado diretamente pela resposta do connect
+      setStatus({
+        status: data.status || 'RECONNECTING',
+        phone: data.phone || null,
+        qrCode: data.qrCode || null,
+      });
+
+      // Se não veio QR Code na resposta, buscar via polling
+      if (!data.qrCode && data.status === 'RECONNECTING') {
+        await fetchQrCode();
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erro ao iniciar conexão com WhatsApp');
     } finally {
