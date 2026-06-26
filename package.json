@@ -14,7 +14,6 @@
     "db:generate": "cd apps/api && npx prisma generate",
     "db:push": "cd apps/api && npx prisma db push",
     "db:migrate": "cd apps/api && npx prisma migrate dev",
-    "db:seed": "cd apps/api && npx prisma db seed",
     "docker:up": "docker-compose -f infra/docker-compose.yml up -d",
     "docker:down": "docker-compose -f infra/docker-compose.yml down"
   },

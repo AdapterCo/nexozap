@@ -1,14 +1,14 @@
 'use client'
 
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import {
   CalendarCheck,
   CheckCircle2,
-  XCircle,
-  UserX,
-  TrendingUp,
   DollarSign,
   Star,
+  TrendingUp,
+  UserX,
+  XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -30,47 +30,43 @@ interface OverviewReportProps {
 const COLORS = ['#22c55e', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6']
 
 export function OverviewReport({ data }: OverviewReportProps) {
-  const total = data?.totalAppointments || 0
-  const completed = data?.completed || 0
-  const canceled = data?.canceled || 0
-  const noShow = data?.noShow || 0
-  const conversionRate = data?.conversionRate || 0
-  const revenue = data?.revenue || 0
-  const averageRating = data?.averageRating || 0
-  const statusData = data?.statusBreakdown || [
-    { name: 'Concluídos', value: completed || 45 },
-    { name: 'Cancelados', value: canceled || 8 },
-    { name: 'Não Compareceu', value: noShow || 5 },
-  ]
+  const total = data?.totalAppointments ?? 0
+  const completed = data?.completed ?? 0
+  const canceled = data?.canceled ?? 0
+  const noShow = data?.noShow ?? 0
+  const conversionRate = data?.conversionRate ?? 0
+  const revenue = data?.revenue ?? 0
+  const averageRating = data?.averageRating ?? 0
+  const statusData = data?.statusBreakdown ?? []
 
   const summaryCards = [
     {
       label: 'Total de Atendimentos',
-      value: total || 58,
+      value: total,
       icon: CalendarCheck,
       color: 'bg-blue-100 text-blue-600',
     },
     {
       label: 'Concluídos',
-      value: completed || 45,
+      value: completed,
       icon: CheckCircle2,
       color: 'bg-green-100 text-green-600',
     },
     {
       label: 'Cancelados',
-      value: canceled || 8,
+      value: canceled,
       icon: XCircle,
       color: 'bg-red-100 text-red-600',
     },
     {
       label: 'Não Compareceu',
-      value: noShow || 5,
+      value: noShow,
       icon: UserX,
       color: 'bg-yellow-100 text-yellow-600',
     },
     {
       label: 'Taxa de Conversão',
-      value: `${conversionRate || 77}%`,
+      value: `${conversionRate}%`,
       icon: TrendingUp,
       color: 'bg-purple-100 text-purple-600',
     },
@@ -97,35 +93,36 @@ export function OverviewReport({ data }: OverviewReportProps) {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">
-            Status dos Agendamentos
-          </h3>
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">Status dos Agendamentos</h3>
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={4}
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
-                >
-                  {statusData.map((_, index) => (
-                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: '8px',
-                    border: '1px solid #e5e7eb',
-                  }}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            {statusData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                Sem dados para exibir.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={statusData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={4}
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                  >
+                    {statusData.map((_, index) => (
+                      <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -136,7 +133,7 @@ export function OverviewReport({ data }: OverviewReportProps) {
               <h3 className="text-sm font-medium text-gray-700">Receita no Período</h3>
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              R$ {(revenue || 4250).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </p>
           </div>
 
@@ -146,20 +143,18 @@ export function OverviewReport({ data }: OverviewReportProps) {
               <h3 className="text-sm font-medium text-gray-700">Avaliação Média</h3>
             </div>
             <div className="flex items-baseline gap-1">
-              <p className="text-3xl font-bold text-gray-900">
-                {(averageRating || 4.6).toFixed(1)}
-              </p>
+              <p className="text-3xl font-bold text-gray-900">{averageRating.toFixed(1)}</p>
               <span className="text-sm text-gray-500">/ 5.0</span>
             </div>
             <div className="mt-2 flex gap-0.5">
-              {[1, 2, 3, 4, 5].map((s) => (
+              {[1, 2, 3, 4, 5].map((star) => (
                 <Star
-                  key={s}
+                  key={star}
                   className={cn(
                     'h-4 w-4',
-                    s <= Math.round(averageRating || 4.6)
+                    star <= Math.round(averageRating)
                       ? 'fill-yellow-400 text-yellow-400'
-                      : 'text-gray-300'
+                      : 'text-gray-300',
                   )}
                 />
               ))}

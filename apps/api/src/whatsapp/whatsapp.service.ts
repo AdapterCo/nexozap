@@ -99,7 +99,7 @@ export class WhatsAppService implements OnModuleDestroy {
     try {
       sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
+      printQRInTerminal: false,
         browser: ['NexoZap', 'Chrome', '4.0.0'],
         generateHighQualityLinkPreview: false,
       });
@@ -186,7 +186,6 @@ export class WhatsAppService implements OnModuleDestroy {
       // Se a conexão abrir antes do timeout (sessão salva), resolver
       const sock = this.connections.get(companyId);
       if (sock) {
-        const originalHandler = sock.ev.listeners?.('connection.update');
         const checkConnection = () => {
           if (sock.user) {
             clearInterval(checkInterval);
@@ -473,10 +472,12 @@ export class WhatsAppService implements OnModuleDestroy {
     if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
+        const { EncryptionService } = await import('../common/security/encryption.service');
         const aiService = new AIService(
           this.prisma,
           this.httpService,
           this.configService,
+          new EncryptionService(this.configService),
         );
         const result = await aiService.chat(conversation.id, messageContent, companyId);
         botResponse = result.response;
