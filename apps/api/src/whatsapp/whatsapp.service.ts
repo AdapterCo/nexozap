@@ -205,8 +205,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     this.connectionStatus.set(companyId, 'connecting');
     this.qrCodes.delete(companyId);
 
-    await this.upsertConnection(companyId, 'RECONNECTING', { qrcode: null });
-
     try {
       await this.startSocket(companyId);
       const qr = await this.waitForQRCode(companyId, 4000);
@@ -311,10 +309,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           this.qrCodes.set(companyId, qrImage);
           this.connectionStatus.set(companyId, 'qr');
 
-          await this.upsertConnection(companyId, 'RECONNECTING', {
-            qrcode: qrImage,
-          });
-
           this.logger.log(`QR Code gerado para empresa ${companyId}`);
         } catch (err) {
           this.logger.error(`Erro ao converter QR Code: ${this.getErrorMessage(err)}`);
@@ -342,13 +336,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         this.connections.delete(companyId);
 
         if (shouldReconnect) {
-          const existingQr = this.qrCodes.get(companyId) || '';
-
-          this.connectionStatus.set(companyId, existingQr ? 'qr' : 'connecting');
-
-          await this.upsertConnection(companyId, 'RECONNECTING', {
-            ...(existingQr ? { qrcode: existingQr } : {}),
-          });
+          this.connectionStatus.set(companyId, 'connecting');
         } else {
           this.qrCodes.delete(companyId);
           this.connectionStatus.set(companyId, 'disconnected');
@@ -403,17 +391,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         return qr;
       }
 
-      const conn = await this.prisma.whatsAppConnection.findFirst({
-        where: { companyId },
-      });
-
-      const persistedQr = this.normalizeQrCode(conn?.qrcode);
-
-      if (persistedQr) {
-        this.qrCodes.set(companyId, persistedQr);
-        return persistedQr;
-      }
-
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
@@ -437,7 +414,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const status = this.connectionStatus.get(companyId);
     const sock = this.connections.get(companyId);
 
-    if (sock?.user && status === 'open') {
+    if (sock?.user) {
       const phone = this.getConnectedPhoneFromSocket(sock);
 
       return {
@@ -450,34 +427,6 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     if (status === 'qr' || status === 'connecting') {
       const qr = this.normalizeQrCode(this.qrCodes.get(companyId));
-
-      return {
-        status: 'RECONNECTING',
-        phone: '',
-        qrcode: qr,
-        qrCode: qr,
-      };
-    }
-
-    const conn = await this.prisma.whatsAppConnection.findFirst({
-      where: { companyId },
-    });
-
-    if (conn?.status === 'CONNECTED') {
-      return {
-        status: 'CONNECTED',
-        phone: conn.phone || '',
-        qrcode: '',
-        qrCode: '',
-      };
-    }
-
-    if (conn?.status === 'RECONNECTING') {
-      const qr = this.normalizeQrCode(conn.qrcode);
-
-      if (qr) {
-        this.qrCodes.set(companyId, qr);
-      }
 
       return {
         status: 'RECONNECTING',

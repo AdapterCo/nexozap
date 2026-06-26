@@ -41,35 +41,18 @@ export default function WhatsAppPage() {
     }
   }, [company?.id]);
 
-  const fetchQrCode = useCallback(async () => {
-    if (!company?.id) return;
-    try {
-      const response = await api.get(`/companies/${company.id}/whatsapp/qrcode`);
-      const data = response.data;
-      if (data.qrCode) {
-        addLog('QR Code recebido');
-        setStatus((prev) => ({ ...prev, qrCode: data.qrCode, status: 'RECONNECTING' }));
-      }
-    } catch (err: any) {
-      addLog(`Erro ao buscar QR: ${err.message}`);
-    }
-  }, [company?.id]);
-
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 5000);
-    return () => clearInterval(interval);
   }, [fetchStatus]);
 
   useEffect(() => {
     if (status.status !== 'RECONNECTING' || !initiatedRef.current) return;
-    fetchQrCode();
-    const interval = setInterval(fetchQrCode, 3000);
+    const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
-  }, [fetchQrCode, status.status]);
+  }, [fetchStatus, status.status]);
 
   useEffect(() => {
-    if (status.status === 'DISCONNECTED') {
+    if (status.status !== 'RECONNECTING') {
       initiatedRef.current = false;
     }
   }, [status.status]);
