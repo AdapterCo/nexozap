@@ -32,9 +32,9 @@ export default function WhatsAppPage() {
       const data = response.data;
       addLog(`Status: ${data.status}`);
       setStatus((prev) => ({
-        ...prev,
-        ...data,
-        qrCode: data.qrCode || prev.qrCode || null,
+        status: data.status || 'DISCONNECTED',
+        phone: data.phone || null,
+        qrCode: data.qrCode || null,
       }));
     } catch (err: any) {
       addLog(`Erro ao buscar status: ${err.message}`);

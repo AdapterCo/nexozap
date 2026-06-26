@@ -217,18 +217,15 @@ export class WhatsAppService implements OnModuleDestroy {
 
     const conn = await this.prisma.whatsAppConnection.findFirst({ where: { companyId } });
     if (conn) {
-      if (conn.status === 'RECONNECTING' && conn.qrcode) {
-        return { status: 'RECONNECTING', phone: conn.phone, qrCode: conn.qrcode };
+      if (conn.status === 'RECONNECTING') {
+        await this.prisma.whatsAppConnection.update({
+          where: { id: conn.id },
+          data: { status: 'DISCONNECTED', qrcode: null },
+        });
+        return { status: 'DISCONNECTED', phone: null };
       }
       if (conn.status === 'CONNECTED') {
         return { status: 'CONNECTED', phone: conn.phone };
-      }
-      if (conn.status === 'RECONNECTING' && !conn.qrcode) {
-        await this.prisma.whatsAppConnection.update({
-          where: { id: conn.id },
-          data: { status: 'DISCONNECTED' },
-        });
-        return { status: 'DISCONNECTED', phone: null };
       }
     }
 
