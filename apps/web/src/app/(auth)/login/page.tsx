@@ -55,11 +55,13 @@ export default function LoginPage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
             E-mail
           </label>
           <input
+            id="email"
             type="email"
+            autoComplete="email"
             {...register('email')}
             className="input-field"
             placeholder="seu@email.com"
@@ -70,12 +72,14 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
             Senha
           </label>
           <div className="relative">
             <input
+              id="password"
               type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
               {...register('password')}
               className="input-field pr-10"
               placeholder="••••••••"

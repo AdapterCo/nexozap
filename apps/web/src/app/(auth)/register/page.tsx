@@ -63,11 +63,13 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
             Nome completo
           </label>
           <input
+            id="name"
             type="text"
+            autoComplete="name"
             {...register('name')}
             className="input-field"
             placeholder="Seu nome"
@@ -78,11 +80,13 @@ export default function RegisterPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-1">
             Nome da empresa
           </label>
           <input
+            id="companyName"
             type="text"
+            autoComplete="organization"
             {...register('companyName')}
             className="input-field"
             placeholder="Sua empresa"
@@ -93,11 +97,13 @@ export default function RegisterPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
             E-mail
           </label>
           <input
+            id="email"
             type="email"
+            autoComplete="email"
             {...register('email')}
             className="input-field"
             placeholder="seu@email.com"
@@ -108,12 +114,14 @@ export default function RegisterPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
             Senha
           </label>
           <div className="relative">
             <input
+              id="password"
               type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
               {...register('password')}
               className="input-field pr-10"
               placeholder="••••••••"
@@ -132,11 +140,13 @@ export default function RegisterPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
             Confirmar senha
           </label>
           <input
+            id="confirmPassword"
             type={showPassword ? 'text' : 'password'}
+            autoComplete="new-password"
             {...register('confirmPassword')}
             className="input-field"
             placeholder="••••••••"

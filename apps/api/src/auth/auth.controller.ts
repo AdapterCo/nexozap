@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Body, UseGuards, Request, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import type { CookieOptions, Response } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { IsEmail, IsString, MinLength } from 'class-validator';
@@ -50,7 +50,7 @@ export class AuthController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('nexozap_token', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' });
+    response.clearCookie('nexozap_token', this.getCookieOptions());
     return { success: true };
   }
 
@@ -62,11 +62,23 @@ export class AuthController {
 
   private setAuthCookie(response: Response, token: string) {
     response.cookie('nexozap_token', token, {
+      ...this.getCookieOptions(),
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+  }
+
+  private getCookieOptions(): CookieOptions {
+    const options: CookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
       path: '/',
-    });
+    };
+
+    if (process.env.NODE_ENV === 'production' && process.env.APP_URL) {
+      options.domain = process.env.APP_URL;
+    }
+
+    return options;
   }
 }
