@@ -8,8 +8,8 @@ import { MessageSquare, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 interface WhatsAppStatus {
   status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING';
-  phone?: string | null;
-  qrCode?: string | null;
+  phone?: string;
+  qrCode?: string;
 }
 
 export default function WhatsAppPage() {
@@ -33,8 +33,8 @@ export default function WhatsAppPage() {
       addLog(`Status: ${data.status}`);
       setStatus((prev) => ({
         status: data.status || 'DISCONNECTED',
-        phone: data.phone || null,
-        qrCode: data.qrCode || prev.qrCode || null,
+        phone: data.phone || '',
+        qrCode: data.qrCode || prev.qrCode || '',
       }));
     } catch (err: any) {
       addLog(`Erro ao buscar status: ${err.message}`);
@@ -94,8 +94,8 @@ export default function WhatsAppPage() {
 
       setStatus({
         status: data.status || 'RECONNECTING',
-        phone: data.phone || null,
-        qrCode: data.qrCode || null,
+        phone: data.phone || '',
+        qrCode: data.qrCode || '',
       });
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Erro ao conectar';
@@ -114,7 +114,7 @@ export default function WhatsAppPage() {
 
     try {
       await api.delete(`/companies/${company.id}/whatsapp/disconnect`);
-      setStatus({ status: 'DISCONNECTED', phone: null, qrCode: null });
+      setStatus({ status: 'DISCONNECTED', phone: '', qrCode: '' });
       addLog('Desconectado');
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Erro ao desconectar';

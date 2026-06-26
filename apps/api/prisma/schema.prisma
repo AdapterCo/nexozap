@@ -244,6 +244,7 @@ model Conversation {
   companyId             String
   whatsappConnectionId  String
   clientPhone           String
+  clientJid             String?
   clientName            String?
   mode                  ConversationMode   @default(FLOW)
   status                ConversationStatus @default(ACTIVE)

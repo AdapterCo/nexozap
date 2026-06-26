@@ -36,7 +36,11 @@ export class ConversationsService {
 
   async send(companyId: string, conversationId: string, content: string) {
     const conversation = await this.getConversation(companyId, conversationId);
-    await this.whatsapp.sendMessage(conversation.clientPhone, content, companyId);
+    await this.whatsapp.sendMessage(
+      conversation.clientJid || conversation.clientPhone,
+      content,
+      companyId,
+    );
     return this.prisma.message.create({
       data: { conversationId, content, direction: 'OUTBOUND', sender: 'HUMAN' },
     });

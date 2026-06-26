@@ -26,6 +26,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private connectionStatus: Map<string, string> = new Map();
   private reconnectTimers: Map<string, NodeJS.Timeout> = new Map();
 
+  private readonly emptyQrResponse = {
+    qrcode: '',
+    qrCode: '',
+    message: 'QR Code ainda não disponível',
+  };
+
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
@@ -47,7 +53,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     setTimeout(() => {
       this.reconnectActiveSessions().catch((err) => {
-        this.logger.error(`Erro ao reconectar sessões ativas no startup: ${err.message}`);
+        this.logger.error(
+          `Erro ao reconectar sessões ativas no startup: ${this.getErrorMessage(err)}`,
+        );
       });
     }, 5000);
   }
@@ -56,7 +64,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     for (const [, sock] of this.connections) {
       try {
         sock.end(undefined);
-      } catch {}
+      } catch (err) {
+        this.logger.warn(`Erro ao encerrar socket no shutdown: ${this.getErrorMessage(err)}`);
+      }
     }
 
     for (const [, timer] of this.reconnectTimers) {
@@ -80,15 +90,105 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.connect(conn.companyId);
       } catch (err) {
-        this.logger.error(`Falha ao autoreconectar ${conn.companyId}: ${err.message}`);
+        this.logger.error(
+          `Falha ao autoreconectar ${conn.companyId}: ${this.getErrorMessage(err)}`,
+        );
       }
     }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+
+    if (typeof error === 'string') return error;
+
+    try {
+      const serialized = JSON.stringify(error);
+
+      return serialized || 'Erro desconhecido';
+    } catch {
+      return 'Erro desconhecido';
+    }
+  }
+
+  private getDisconnectInfo(lastDisconnect: ConnectionState['lastDisconnect']) {
+    const error = lastDisconnect?.error as any;
+
+    return {
+      statusCode: error?.output?.statusCode,
+      message: error?.message || this.getErrorMessage(error),
+    };
+  }
+
+  private ensureValidSessionFolder(companyId: string, authFolder: string) {
+    if (!fs.existsSync(authFolder)) return;
+
+    const invalidFiles: string[] = [];
+    const files = fs.readdirSync(authFolder, { withFileTypes: true });
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith('.json')) continue;
+
+      const filePath = path.join(authFolder, file.name);
+
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8').trim();
+
+        if (!raw) continue;
+
+        const parsed = JSON.parse(raw);
+
+        if (parsed === null || typeof parsed !== 'object') {
+          invalidFiles.push(file.name);
+        }
+      } catch (err) {
+        invalidFiles.push(`${file.name}: ${this.getErrorMessage(err)}`);
+      }
+    }
+
+    if (invalidFiles.length === 0) return;
+
+    this.logger.warn(
+      `Sessão WhatsApp corrompida para ${companyId}. Removendo pasta ${authFolder}. Arquivos inválidos: ${invalidFiles.join(', ')}`,
+    );
+
+    fs.rmSync(authFolder, { recursive: true, force: true });
+  }
+
+  private async endSocket(companyId: string, sock: WASocket) {
+    try {
+      sock.end(undefined);
+    } catch (err) {
+      this.logger.warn(`Erro ao encerrar socket de ${companyId}: ${this.getErrorMessage(err)}`);
+    }
+  }
+
+  private normalizeQrCode(qr?: string | null): string {
+    if (!qr) return '';
+
+    const normalized = qr.trim();
+
+    if (!normalized || normalized === 'null' || normalized === 'undefined') {
+      return '';
+    }
+
+    return normalized;
+  }
+
+  private getConnectedPhoneFromSocket(sock?: WASocket): string {
+    return sock?.user?.id?.split(':')[0]?.split('@')[0] || '';
   }
 
   async connect(companyId: string) {
     if (this.connections.has(companyId) && this.connectionStatus.get(companyId) === 'open') {
       const phone = await this.getConnectedPhone(companyId);
-      return { status: 'CONNECTED', message: 'Sessão já ativa', phone };
+      return {
+        status: 'CONNECTED',
+        message: 'Sessão já ativa',
+        phone: phone || '',
+        qrcode: '',
+        qrCode: '',
+      };
     }
 
     if (this.reconnectTimers.has(companyId)) {
@@ -98,9 +198,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const existingSock = this.connections.get(companyId);
     if (existingSock) {
-      try {
-        existingSock.end(undefined);
-      } catch {}
+      await this.endSocket(companyId, existingSock);
       this.connections.delete(companyId);
     }
 
@@ -111,13 +209,19 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.startSocket(companyId);
+      const qr = await this.waitForQRCode(companyId, 4000);
 
       return {
         status: 'RECONNECTING',
-        message: 'Conectando... aguarde o QR Code',
+        message: qr ? 'QR Code gerado' : 'Conectando... aguarde o QR Code',
+        phone: '',
+        qrcode: qr || '',
+        qrCode: qr || '',
       };
     } catch (err) {
-      this.logger.error(`Falha ao iniciar socket para ${companyId}: ${err.message}`);
+      const message = this.getErrorMessage(err);
+
+      this.logger.error(`Falha ao iniciar socket para ${companyId}: ${message}`);
 
       this.connectionStatus.set(companyId, 'disconnected');
       this.qrCodes.delete(companyId);
@@ -126,7 +230,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
       return {
         status: 'DISCONNECTED',
-        message: err.message,
+        message,
+        phone: '',
+        qrcode: '',
+        qrCode: '',
       };
     }
   }
@@ -137,12 +244,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     let state: any;
     let saveCreds: () => Promise<void>;
 
+    this.ensureValidSessionFolder(companyId, authFolder);
+
     try {
       const authResult = await useMultiFileAuthState(authFolder);
       state = authResult.state;
       saveCreds = authResult.saveCreds;
     } catch (error) {
-      this.logger.error(`Erro ao carregar sessão para ${companyId}: ${error.message}`);
+      this.logger.error(
+        `Erro ao carregar sessão para ${companyId}: ${this.getErrorMessage(error)}`,
+      );
 
       if (fs.existsSync(authFolder)) {
         fs.rmSync(authFolder, { recursive: true, force: true });
@@ -160,7 +271,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       version = latest.version;
       this.logger.log(`Baileys versão usada: ${version.join('.')}`);
     } catch (err) {
-      this.logger.warn(`Não foi possível buscar versão do Baileys: ${err.message}`);
+      this.logger.warn(
+        `Não foi possível buscar versão do Baileys: ${this.getErrorMessage(err)}`,
+      );
     }
 
     const sock = makeWASocket({
@@ -177,13 +290,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
       const { connection, lastDisconnect, qr } = update;
+      const disconnectInfo = this.getDisconnectInfo(lastDisconnect);
 
       this.logger.log(
         `connection.update ${companyId}: ${JSON.stringify({
           connection,
           hasQr: !!qr,
-          statusCode: (lastDisconnect?.error as any)?.output?.statusCode,
-          error: (lastDisconnect?.error as any)?.message,
+          statusCode: disconnectInfo.statusCode,
+          error: disconnectInfo.message,
         })}`,
       );
 
@@ -203,7 +317,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
           this.logger.log(`QR Code gerado para empresa ${companyId}`);
         } catch (err) {
-          this.logger.error(`Erro ao converter QR Code: ${err.message}`);
+          this.logger.error(`Erro ao converter QR Code: ${this.getErrorMessage(err)}`);
         }
       }
 
@@ -222,19 +336,34 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (connection === 'close') {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const statusCode = disconnectInfo.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
         this.connections.delete(companyId);
-        this.qrCodes.delete(companyId);
-        this.connectionStatus.set(companyId, 'disconnected');
 
-        await this.upsertConnection(companyId, 'DISCONNECTED', {
-          qrcode: null,
-        });
+        if (shouldReconnect) {
+          const existingQr = this.qrCodes.get(companyId) || '';
+
+          this.connectionStatus.set(companyId, existingQr ? 'qr' : 'connecting');
+
+          await this.upsertConnection(companyId, 'RECONNECTING', {
+            ...(existingQr ? { qrcode: existingQr } : {}),
+          });
+        } else {
+          this.qrCodes.delete(companyId);
+          this.connectionStatus.set(companyId, 'disconnected');
+
+          if (fs.existsSync(authFolder)) {
+            fs.rmSync(authFolder, { recursive: true, force: true });
+          }
+
+          await this.upsertConnection(companyId, 'DISCONNECTED', {
+            qrcode: null,
+          });
+        }
 
         this.logger.warn(
-          `WhatsApp fechado para ${companyId}. StatusCode: ${statusCode}. Reconectar: ${shouldReconnect}`,
+          `WhatsApp fechado para ${companyId}. StatusCode: ${statusCode}. Erro: ${disconnectInfo.message}. Reconectar: ${shouldReconnect}`,
         );
 
         if (shouldReconnect) {
@@ -242,7 +371,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             this.reconnectTimers.delete(companyId);
 
             this.connect(companyId).catch((err) => {
-              this.logger.error(`Falha ao reconectar ${companyId}: ${err.message}`);
+              this.logger.error(`Falha ao reconectar ${companyId}: ${this.getErrorMessage(err)}`);
             });
           }, 5000);
 
@@ -258,7 +387,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         try {
           await this.handleMessage(companyId, msg);
         } catch (error) {
-          this.logger.error(`Erro ao processar mensagem: ${error.message}`);
+          this.logger.error(`Erro ao processar mensagem: ${this.getErrorMessage(error)}`);
         }
       }
     });
@@ -268,7 +397,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
-      const qr = this.qrCodes.get(companyId);
+      const qr = this.normalizeQrCode(this.qrCodes.get(companyId));
 
       if (qr) {
         return qr;
@@ -278,8 +407,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         where: { companyId },
       });
 
-      if (conn?.qrcode) {
-        return conn.qrcode;
+      const persistedQr = this.normalizeQrCode(conn?.qrcode);
+
+      if (persistedQr) {
+        this.qrCodes.set(companyId, persistedQr);
+        return persistedQr;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -298,11 +430,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    return {
-      qrcode: null,
-      qrCode: null,
-      message: 'QR Code ainda não disponível',
-    };
+    return this.emptyQrResponse;
   }
 
   async getStatus(companyId: string) {
@@ -310,21 +438,24 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const sock = this.connections.get(companyId);
 
     if (sock?.user && status === 'open') {
-      const phone = sock.user?.id?.split(':')[0]?.split('@')[0] || '';
+      const phone = this.getConnectedPhoneFromSocket(sock);
 
       return {
         status: 'CONNECTED',
         phone,
+        qrcode: '',
+        qrCode: '',
       };
     }
 
     if (status === 'qr' || status === 'connecting') {
-      const qr = this.qrCodes.get(companyId);
+      const qr = this.normalizeQrCode(this.qrCodes.get(companyId));
 
       return {
         status: 'RECONNECTING',
-        phone: null,
-        qrCode: qr || null,
+        phone: '',
+        qrcode: qr,
+        qrCode: qr,
       };
     }
 
@@ -335,30 +466,41 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (conn?.status === 'CONNECTED') {
       return {
         status: 'CONNECTED',
-        phone: conn.phone,
+        phone: conn.phone || '',
+        qrcode: '',
+        qrCode: '',
       };
     }
 
     if (conn?.status === 'RECONNECTING') {
+      const qr = this.normalizeQrCode(conn.qrcode);
+
+      if (qr) {
+        this.qrCodes.set(companyId, qr);
+      }
+
       return {
         status: 'RECONNECTING',
-        phone: null,
-        qrCode: conn.qrcode || null,
+        phone: '',
+        qrcode: qr,
+        qrCode: qr,
       };
     }
 
     return {
       status: 'DISCONNECTED',
-      phone: null,
+      phone: '',
+      qrcode: '',
+      qrCode: '',
     };
   }
 
-  private async getConnectedPhone(companyId: string): Promise<string | null> {
+  private async getConnectedPhone(companyId: string): Promise<string> {
     const conn = await this.prisma.whatsAppConnection.findFirst({
       where: { companyId },
     });
 
-    return conn?.phone || null;
+    return conn?.phone || '';
   }
 
   private async upsertConnection(
@@ -407,9 +549,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const sock = this.connections.get(companyId);
 
     if (sock) {
-      try {
-        sock.end(undefined);
-      } catch {}
+      await this.endSocket(companyId, sock);
 
       this.connections.delete(companyId);
     }
@@ -434,6 +574,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     return {
       status: 'DISCONNECTED',
+      phone: '',
+      qrcode: '',
+      qrCode: '',
     };
   }
 
@@ -522,7 +665,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     let conversation = await this.prisma.conversation.findFirst({
       where: {
         whatsappConnectionId: conn.id,
-        clientPhone: cleanPhone,
+        OR: [{ clientJid: remoteJid }, { clientPhone: cleanPhone }],
         status: 'ACTIVE',
       },
     });
@@ -533,9 +676,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           companyId,
           whatsappConnectionId: conn.id,
           clientPhone: cleanPhone,
+          clientJid: remoteJid,
           mode: company?.aiConfig?.isActive ? 'AI' : 'FLOW',
           status: 'ACTIVE',
         },
+      });
+    } else if (conversation.clientJid !== remoteJid) {
+      conversation = await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { clientJid: remoteJid },
       });
     }
 
@@ -567,7 +716,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         botResponse = result.response;
       } catch (error) {
-        this.logger.error(`Falha no chat IA: ${error.message}`);
+        this.logger.error(`Falha no chat IA: ${this.getErrorMessage(error)}`);
         botResponse = 'Desculpe, estou com dificuldades no momento.';
       }
     } else if (conversation.mode === 'FLOW') {
@@ -587,7 +736,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
           botResponse = result.response;
         } catch (error) {
-          this.logger.error(`Falha no fluxo: ${error.message}`);
+          this.logger.error(`Falha no fluxo: ${this.getErrorMessage(error)}`);
           botResponse = 'Desculpe, ocorreu um erro.';
         }
       } else {
