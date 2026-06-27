@@ -689,7 +689,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           botResponse = 'Desculpe, ocorreu um erro.';
         }
       } else {
-        botResponse = 'Olá! Como posso ajudá-lo?';
+        // Sem fluxo ativo: mensagem de apresentação com serviços
+        const activeServices = await this.prisma.service.findMany({
+          where: { companyId, isActive: true },
+          take: 5,
+        });
+        const servicesList = activeServices.length > 0
+          ? activeServices
+              .map((s) => `• *${s.name}* — R$ ${Number(s.price).toFixed(2)} (${s.durationMinutes} min)`)
+              .join('\n')
+          : '';
+        botResponse = `Olá! Bem-vindo(a) à *${company?.name || 'nossa empresa'}*! 😊`
+          + (servicesList ? `\n\nNossos serviços:\n${servicesList}\n\nEntre em contato com nossa equipe para agendar!` : '\n\nComo posso ajudá-lo?');
       }
     }
 

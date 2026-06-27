@@ -319,7 +319,8 @@ export class AIService {
   private getDefaultModel(provider: AIProviderDto): string {
     const defaults: Record<AIProviderDto, string> = {
       [AIProviderDto.OPENAI]: 'gpt-4o-mini',
-      [AIProviderDto.GROQ]: 'llama-3.1-8b-instant',
+      // llama-3.3-70b-versatile tem suporte nativo a tool calling no Groq
+      [AIProviderDto.GROQ]: 'llama-3.3-70b-versatile',
       [AIProviderDto.GEMINI]: 'gemini-2.5-flash',
     };
     return defaults[provider];
@@ -333,6 +334,7 @@ export class AIService {
       'gpt-3.5-turbo': 0.0000005,
       'llama-3.1-8b-instant': 0.00000005,
       'llama-3.1-70b-versatile': 0.00000059,
+      'llama-3.3-70b-versatile': 0.00000059,
       'llama3-70b-8192': 0.00000059,
       'llama3-8b-8192': 0.00000005,
       'mixtral-8x7b-32768': 0.00000024,
@@ -598,9 +600,6 @@ export class AIService {
   }
 
   private async executeTool(fnName: string, fnArgs: any, companyId: string): Promise<any> {
-    const services = await this.prisma.service.findMany({ where: { companyId, isActive: true } });
-    const professionals = await this.prisma.professional.findMany({ where: { companyId, isActive: true } });
-
     switch (fnName) {
       case 'getAvailableSlots':
         return this.getAvailableSlots(fnArgs.professionalId, fnArgs.date, companyId);
@@ -608,30 +607,34 @@ export class AIService {
         return this.createAppointment(companyId, fnArgs, '');
       case 'cancelAppointment':
         return this.cancelAppointment(fnArgs.appointmentId, companyId);
-      case 'getServices':
+      case 'getServices': {
+        const services = await this.prisma.service.findMany({ where: { companyId, isActive: true } });
         return services.map((s) => ({
           id: s.id,
           name: s.name,
           price: s.price,
           duration: s.durationMinutes,
         }));
-      case 'getProfessionals':
+      }
+      case 'getProfessionals': {
+        const professionals = await this.prisma.professional.findMany({ where: { companyId, isActive: true } });
         return professionals.map((p) => ({
           id: p.id,
           name: p.name,
           specialty: p.specialty,
         }));
+      }
       default:
         return { error: 'Função desconhecida' };
     }
   }
 
   private async getAvailableSlots(professionalId: string, dateStr: string, companyId: string) {
-    const date = new Date(dateStr);
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    // Parsear como data local para evitar deslocamento de fuso (new Date('YYYY-MM-DD') usa UTC)
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
+    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     const professional = await this.prisma.professional.findUnique({ where: { id: professionalId } });
@@ -702,9 +705,60 @@ export class AIService {
     const professional = await this.prisma.professional.findFirst({ where: { id: data.professionalId, companyId } });
     if (!professional) return { error: 'Profissional não encontrado' };
 
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) return { error: 'Empresa não encontrada' };
+
+    // Parsear como data local para evitar deslocamento de fuso
+    const [year, month, day] = data.date.split('-').map(Number);
+    const appointmentDate = new Date(year, month - 1, day);
+
+    // Validar disponibilidade do profissional no dia
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = days[appointmentDate.getDay()];
+    if (!professional.availableDays.includes(dayName)) {
+      return { error: `Profissional não disponível neste dia da semana (${dayName})` };
+    }
+
+    // Validar horário de expediente
+    if (data.time < company.openingTime || data.time >= company.closingTime) {
+      return { error: `Horário fora do expediente da empresa (${company.openingTime} - ${company.closingTime})` };
+    }
+
     const [startH, startM] = data.time.split(':').map(Number);
     const totalMinutes = startH * 60 + startM + service.durationMinutes;
     const endTime = `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
+
+    if (endTime > company.closingTime) {
+      return { error: `Agendamento ultrapassa o horário de encerramento (${company.closingTime})` };
+    }
+
+    // Verificar conflitos com outros agendamentos
+    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
+    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+
+    const overlapping = await this.prisma.appointment.findFirst({
+      where: {
+        professionalId: data.professionalId,
+        date: { gte: dayStart, lte: dayEnd },
+        status: { notIn: ['CANCELLED'] },
+        AND: [{ startTime: { lt: endTime } }, { endTime: { gt: data.time } }],
+      },
+    });
+    if (overlapping) {
+      return { error: `Conflito de horário: já existe agendamento das ${overlapping.startTime} às ${overlapping.endTime}` };
+    }
+
+    // Verificar bloqueios de horário
+    const timeBlock = await this.prisma.timeBlock.findFirst({
+      where: {
+        professionalId: data.professionalId,
+        date: { gte: dayStart, lte: dayEnd },
+        AND: [{ startTime: { lt: endTime } }, { endTime: { gt: data.time } }],
+      },
+    });
+    if (timeBlock) {
+      return { error: `Horário bloqueado${timeBlock.reason ? ': ' + timeBlock.reason : ''}` };
+    }
 
     const appointment = await this.prisma.appointment.create({
       data: {
@@ -713,7 +767,7 @@ export class AIService {
         professionalId: data.professionalId,
         clientName: data.clientName,
         clientPhone: data.clientPhone || defaultPhone,
-        date: new Date(data.date),
+        date: appointmentDate,
         startTime: data.time,
         endTime,
       },
@@ -749,12 +803,13 @@ export class AIService {
   }
 
   buildSystemPrompt(config: any, company: any, services: any[], professionals: any[]) {
+    // IDs incluídos para que a IA passe-os diretamente nas chamadas de tools
     const servicesList = services
-      .map((s) => `- ${s.name}: R$ ${s.price.toFixed(2)}, ${s.durationMinutes} minutos`)
+      .map((s) => `- ${s.name} [ID: ${s.id}]: R$ ${s.price.toFixed(2)}, ${s.durationMinutes} minutos`)
       .join('\n');
 
     const professionalsList = professionals
-      .map((p) => `- ${p.name}${p.specialty ? ` (${p.specialty})` : ''}`)
+      .map((p) => `- ${p.name} [ID: ${p.id}]${p.specialty ? ` (${p.specialty})` : ''}`)
       .join('\n');
 
     const rules = config?.rules?.length
