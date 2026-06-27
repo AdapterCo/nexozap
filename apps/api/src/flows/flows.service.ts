@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFlowDto } from './dto/create-flow.dto';
 
@@ -121,8 +122,8 @@ export class FlowsService {
 
     let state: FlowState;
 
-    if (conversation?.flowState && typeof conversation.flowState === 'object') {
-      state = conversation.flowState as FlowState;
+    if (conversation?.flowState && typeof conversation.flowState === 'object' && !Array.isArray(conversation.flowState)) {
+      state = conversation.flowState as unknown as FlowState;
     } else {
       const startNode = nodes.find((n) => n.type === 'START') || nodes[0];
       state = { currentNodeId: startNode.id, answers: {} };
@@ -210,7 +211,7 @@ export class FlowsService {
   private async clearFlowState(conversationId: string) {
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { flowState: null },
+      data: { flowState: Prisma.DbNull },
     });
   }
 
