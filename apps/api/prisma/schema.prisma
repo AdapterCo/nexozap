@@ -108,7 +108,7 @@ model Company {
 }
 
 model CompanyUser {
-  id        String  @id @default(uuid())
+  id        String   @id @default(uuid())
   companyId String
   userId    String
   role      UserRole @default(USER)
@@ -152,22 +152,22 @@ model Service {
 }
 
 model Professional {
-  id           String   @id @default(uuid())
-  companyId    String
-  name         String
-  photo        String?
-  specialty    String?
-  workingHours Json     @default("{}")
+  id            String   @id @default(uuid())
+  companyId     String
+  name          String
+  photo         String?
+  specialty     String?
+  workingHours  Json     @default("{}")
   availableDays String[] @default(["monday", "tuesday", "wednesday", "thursday", "friday"])
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  services        ProfessionalService[]
-  appointments    Appointment[]
-  workingBlocks   WorkingBlock[]
-  timeBlocks      TimeBlock[]
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  services      ProfessionalService[]
+  appointments  Appointment[]
+  workingBlocks WorkingBlock[]
+  timeBlocks    TimeBlock[]
 }
 
 model ProfessionalService {
@@ -182,20 +182,20 @@ model ProfessionalService {
 }
 
 model Appointment {
-  id              String            @id @default(uuid())
-  companyId       String
-  serviceId       String
-  professionalId  String
-  clientName      String
-  clientPhone     String
-  clientEmail     String?
-  date            DateTime
-  startTime       String
-  endTime         String
-  status          AppointmentStatus @default(SCHEDULED)
-  notes           String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id             String            @id @default(uuid())
+  companyId      String
+  serviceId      String
+  professionalId String
+  clientName     String
+  clientPhone    String
+  clientEmail    String?
+  date           DateTime
+  startTime      String
+  endTime        String
+  status         AppointmentStatus @default(SCHEDULED)
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   service      Service      @relation(fields: [serviceId], references: [id])
@@ -240,23 +240,24 @@ model Flow {
 }
 
 model Conversation {
-  id                    String             @id @default(uuid())
-  companyId             String
-  whatsappConnectionId  String
-  clientPhone           String
-  clientJid             String?
-  clientName            String?
-  mode                  ConversationMode   @default(FLOW)
-  status                ConversationStatus @default(ACTIVE)
-  startedAt             DateTime           @default(now())
-  endedAt               DateTime?
-  tokenUsage            Int                @default(0)
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  id                   String             @id @default(uuid())
+  companyId            String
+  whatsappConnectionId String
+  clientPhone          String
+  clientJid            String?
+  clientName           String?
+  mode                 ConversationMode   @default(FLOW)
+  status               ConversationStatus @default(ACTIVE)
+  flowState            Json?
+  startedAt            DateTime           @default(now())
+  endedAt              DateTime?
+  tokenUsage           Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  company             Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  whatsappConnection  WhatsAppConnection  @relation(fields: [whatsappConnectionId], references: [id])
-  messages            Message[]
+  company            Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  whatsappConnection WhatsAppConnection @relation(fields: [whatsappConnectionId], references: [id])
+  messages           Message[]
 }
 
 model Message {
@@ -271,22 +272,22 @@ model Message {
 }
 
 model AIConfig {
-  id                 String     @id @default(uuid())
-  companyId          String     @unique
-  provider           AIProvider @default(OPENAI)
-  model              String     @default("gpt-4o-mini")
-  apiKey             String?
-  personality        String?
-  toneOfVoice        String?
-  rules              Json       @default("[]")
-  faq                Json       @default("[]")
-  isActive           Boolean    @default(false)
-  dailyTokenLimit    Int        @default(100000)
-  monthlyTokenLimit  Int        @default(2000000)
-  allowedHoursStart  String     @default("08:00")
-  allowedHoursEnd    String     @default("22:00")
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  id                String     @id @default(uuid())
+  companyId         String     @unique
+  provider          AIProvider @default(OPENAI)
+  model             String     @default("gpt-4o-mini")
+  apiKey            String?
+  personality       String?
+  toneOfVoice       String?
+  rules             Json       @default("[]")
+  faq               Json       @default("[]")
+  isActive          Boolean    @default(false)
+  dailyTokenLimit   Int        @default(100000)
+  monthlyTokenLimit Int        @default(2000000)
+  allowedHoursStart String     @default("08:00")
+  allowedHoursEnd   String     @default("22:00")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
@@ -313,22 +314,22 @@ model Evaluation {
 }
 
 model TokenUsage {
-  id        String   @id @default(uuid())
-  companyId String
-  date      DateTime @default(now())
+  id         String   @id @default(uuid())
+  companyId  String
+  date       DateTime @default(now())
   tokensUsed Int
-  cost      Float    @default(0)
+  cost       Float    @default(0)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model NotificationSettings {
-  id                   String  @id @default(uuid())
-  companyId            String  @unique
-  hours24Message       String  @default("Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
-  hours2Message        String  @default("Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
-  afterServiceMessage  String  @default("Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.")
-  isEnabled            Boolean @default(true)
+  id                  String  @id @default(uuid())
+  companyId           String  @unique
+  hours24Message      String  @default("Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
+  hours2Message       String  @default("Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.")
+  afterServiceMessage String  @default("Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.")
+  isEnabled           Boolean @default(true)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

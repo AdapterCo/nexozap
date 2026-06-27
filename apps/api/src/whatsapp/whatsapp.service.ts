@@ -650,7 +650,23 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     let botResponse: string | null = null;
 
-    if (conversation.mode === 'AI' && company?.aiConfig?.isActive) {
+    // Determinar modo efetivo: se mode='AI' mas IA está inativa, usar FLOW
+    const aiIsActive = !!company?.aiConfig?.isActive;
+    const effectiveMode =
+      conversation.mode === 'AI' && !aiIsActive ? 'FLOW' : conversation.mode;
+
+    // Atualizar mode no banco se mudou (IA foi desativada com conversa em andamento)
+    if (effectiveMode !== conversation.mode) {
+      this.logger.log(
+        `Conversa ${conversation.id} migrada de AI→FLOW (IA desativada)`,
+      );
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { mode: 'FLOW' },
+      });
+    }
+
+    if (effectiveMode === 'AI' && aiIsActive) {
       try {
         const { AIService } = await import('../ai/ai.service');
 
@@ -662,31 +678,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         );
 
         const result = await aiService.chat(conversation.id, content, companyId);
-
         botResponse = result.response;
       } catch (error) {
-        this.logger.error(`Falha no chat IA: ${this.getErrorMessage(error)}`);
-        botResponse = 'Desculpe, estou com dificuldades no momento.';
+        const errMsg = this.getErrorMessage(error);
+        this.logger.error(`Falha no chat IA: ${errMsg}`);
+
+        if (errMsg.includes('Limite de tokens')) {
+          botResponse = 'No momento estou indisponível. Por favor, tente novamente mais tarde ou entre em contato diretamente conosco.';
+        } else if (errMsg.includes('Chave de API')) {
+          botResponse = 'Estou com dificuldades técnicas. Por favor, tente novamente em instantes.';
+        } else {
+          botResponse = 'Desculpe, estou com dificuldades no momento. Tente novamente em alguns instantes.';
+        }
       }
-    } else if (conversation.mode === 'FLOW') {
+    } else if (effectiveMode === 'FLOW') {
       const activeFlow = await this.prisma.flow.findFirst({
-        where: {
-          companyId,
-          isActive: true,
-        },
+        where: { companyId, isActive: true },
       });
 
       if (activeFlow) {
         try {
           const { FlowsService } = await import('../flows/flows.service');
-
           const flowsService = new FlowsService(this.prisma);
           const result = await flowsService.execute(conversation.id, content, companyId);
-
           botResponse = result.response;
         } catch (error) {
           this.logger.error(`Falha no fluxo: ${this.getErrorMessage(error)}`);
-          botResponse = 'Desculpe, ocorreu um erro.';
+          botResponse = 'Desculpe, ocorreu um erro no atendimento. Tente novamente.';
         }
       } else {
         // Sem fluxo ativo: mensagem de apresentação com serviços
@@ -700,7 +718,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               .join('\n')
           : '';
         botResponse = `Olá! Bem-vindo(a) à *${company?.name || 'nossa empresa'}*! 😊`
-          + (servicesList ? `\n\nNossos serviços:\n${servicesList}\n\nEntre em contato com nossa equipe para agendar!` : '\n\nComo posso ajudá-lo?');
+          + (servicesList
+            ? `\n\nNossos serviços:\n${servicesList}\n\nEntre em contato com nossa equipe para agendar!`
+            : '\n\nComo posso ajudá-lo?');
       }
     }
 

@@ -68,8 +68,12 @@ export default function AppointmentModal({
   );
 
   const filteredProfessionals = useMemo(() => {
-    if (!serviceId) return professionals.filter((p) => p.active);
-    return professionals.filter((p) => p.active && p.services.includes(serviceId));
+    const active = professionals.filter((p) => p.active);
+    if (!serviceId) return active;
+    // Profissionais que têm o serviço explicitamente vinculado
+    const withService = active.filter((p) => p.services.includes(serviceId));
+    // Se nenhum tem vínculo configurado, mostrar todos os ativos (sem restrição)
+    return withService.length > 0 ? withService : active;
   }, [professionals, serviceId]);
 
   const availableSlots = useMemo(() => {
