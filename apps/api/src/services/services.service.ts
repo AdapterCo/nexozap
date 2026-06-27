@@ -38,6 +38,7 @@ export class ServicesService {
         durationMinutes: dto.durationMinutes,
         price: dto.price,
         color: dto.color,
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     });
   }
