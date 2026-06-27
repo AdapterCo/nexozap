@@ -69,7 +69,7 @@ export default function WhatsAppPage() {
     addLog('Iniciando conexão...');
 
     try {
-      const response = await api.post(`/companies/${company.id}/whatsapp/connect`, null, {
+      const response = await api.post(`/companies/${company.id}/whatsapp/connect`, {}, {
         timeout: 30000,
       });
       const data = response.data;
