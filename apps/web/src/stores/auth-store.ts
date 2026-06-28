@@ -31,6 +31,7 @@ interface AuthState {
   register: (email: string, password: string, name: string, companyName: string) => Promise<void>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
+  setCompany: (company: Company | null) => void;
 }
 
 const useAuthStore = create<AuthState>((set) => ({
@@ -38,6 +39,8 @@ const useAuthStore = create<AuthState>((set) => ({
   company: null,
   isAuthenticated: false,
   isLoading: false,
+
+  setCompany: (company) => set({ company }),
 
   login: async (email: string, password: string) => {
     set({ isLoading: true });
