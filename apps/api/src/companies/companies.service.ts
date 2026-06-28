@@ -85,9 +85,9 @@ export class CompaniesService {
       this.prisma.professional.count({ where: { companyId: id, isActive: true } }),
     ]);
     const limits = {
-      BASIC: { appointments: 500, whatsapp: 1, professionals: 1 },
-      PROFESSIONAL: { appointments: 2000, whatsapp: 3, professionals: 5 },
-      ENTERPRISE: { appointments: null, whatsapp: null, professionals: null },
+      BASIC: { appointments: 500, whatsapp: 1, professionals: 2 },
+      PROFESSIONAL: { appointments: 2000, whatsapp: 2, professionals: 10 },
+      ENTERPRISE: { appointments: 999999, whatsapp: 999, professionals: 999 },
     }[company.plan];
     return {
       plan: company.plan,

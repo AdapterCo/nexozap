@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, BadRequestException, NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +25,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private qrCodes: Map<string, string> = new Map();
   private connectionStatus: Map<string, string> = new Map();
   private reconnectTimers: Map<string, NodeJS.Timeout> = new Map();
+  private connectionLocks: Map<string, Promise<any>> = new Map();
 
   private readonly emptyQrResponse = {
     qrcode: '',
@@ -180,6 +181,39 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async connect(companyId: string) {
+    const existingConn = await this.prisma.whatsAppConnection.findFirst({
+      where: { companyId },
+    });
+
+    if (!existingConn) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { plan: true },
+      });
+
+      if (!company) {
+        throw new NotFoundException('Empresa não encontrada');
+      }
+
+      const currentCount = await this.prisma.whatsAppConnection.count({
+        where: { companyId },
+      });
+
+      const limits = {
+        BASIC: 1,
+        PROFESSIONAL: 2,
+        ENTERPRISE: 9999,
+      };
+
+      const limit = limits[company.plan] || 1;
+
+      if (currentCount >= limit) {
+        throw new BadRequestException(
+          `Seu plano (${company.plan}) atingiu o limite máximo de ${limit} conexões de WhatsApp. Faça upgrade para cadastrar mais.`,
+        );
+      }
+    }
+
     if (this.connections.has(companyId) && this.connectionStatus.get(companyId) === 'open') {
       const phone = await this.getConnectedPhone(companyId);
       return {
@@ -191,49 +225,62 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    if (this.reconnectTimers.has(companyId)) {
-      clearTimeout(this.reconnectTimers.get(companyId));
-      this.reconnectTimers.delete(companyId);
+    if (this.connectionLocks.has(companyId)) {
+      return this.connectionLocks.get(companyId)!;
     }
 
-    const existingSock = this.connections.get(companyId);
-    if (existingSock) {
-      await this.endSocket(companyId, existingSock);
-      this.connections.delete(companyId);
-    }
+    const promise = (async () => {
+      if (this.reconnectTimers.has(companyId)) {
+        clearTimeout(this.reconnectTimers.get(companyId));
+        this.reconnectTimers.delete(companyId);
+      }
 
-    this.connectionStatus.set(companyId, 'connecting');
-    this.qrCodes.delete(companyId);
+      const existingSock = this.connections.get(companyId);
+      if (existingSock) {
+        await this.endSocket(companyId, existingSock);
+        this.connections.delete(companyId);
+      }
 
-    try {
-      await this.startSocket(companyId);
-      const qr = await this.waitForQRCode(companyId, 4000);
-
-      return {
-        status: 'RECONNECTING',
-        message: qr ? 'QR Code gerado' : 'Conectando... aguarde o QR Code',
-        phone: '',
-        qrcode: qr || '',
-        qrCode: qr || '',
-      };
-    } catch (err) {
-      const message = this.getErrorMessage(err);
-
-      this.logger.error(`Falha ao iniciar socket para ${companyId}: ${message}`);
-
-      this.connectionStatus.set(companyId, 'disconnected');
+      this.connectionStatus.set(companyId, 'connecting');
       this.qrCodes.delete(companyId);
 
-      await this.upsertConnection(companyId, 'DISCONNECTED', { qrcode: null });
+      try {
+        await this.startSocket(companyId);
+        const qr = await this.waitForQRCode(companyId, 4000);
 
-      return {
-        status: 'DISCONNECTED',
-        message,
-        phone: '',
-        qrcode: '',
-        qrCode: '',
-      };
-    }
+        return {
+          status: 'RECONNECTING',
+          message: qr ? 'QR Code gerado' : 'Conectando... aguarde o QR Code',
+          phone: '',
+          qrcode: qr || '',
+          qrCode: qr || '',
+        };
+      } catch (err) {
+        const message = this.getErrorMessage(err);
+
+        this.logger.error(`Falha ao iniciar socket para ${companyId}: ${message}`);
+
+        this.connectionStatus.set(companyId, 'disconnected');
+        this.qrCodes.delete(companyId);
+
+        await this.upsertConnection(companyId, 'DISCONNECTED', { qrcode: null });
+
+        return {
+          status: 'DISCONNECTED',
+          message,
+          phone: '',
+          qrcode: '',
+          qrCode: '',
+        };
+      }
+    })();
+
+    this.connectionLocks.set(companyId, promise);
+    promise.finally(() => {
+      this.connectionLocks.delete(companyId);
+    });
+
+    return promise;
   }
 
   private async startSocket(companyId: string) {

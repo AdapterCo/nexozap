@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProfessionalDto } from './dto/create-professional.dto';
 import { UpdateProfessionalDto } from './dto/update-professional.dto';
@@ -6,6 +6,19 @@ import { UpdateProfessionalDto } from './dto/update-professional.dto';
 @Injectable()
 export class ProfessionalsService {
   constructor(private prisma: PrismaService) {}
+
+  private async validateServicesBelongToCompany(companyId: string, serviceIds?: string[]) {
+    if (!serviceIds || serviceIds.length === 0) return;
+    const servicesCount = await this.prisma.service.count({
+      where: {
+        id: { in: serviceIds },
+        companyId,
+      },
+    });
+    if (servicesCount !== serviceIds.length) {
+      throw new BadRequestException('Um ou mais serviços fornecidos não pertencem a esta empresa');
+    }
+  }
 
   async list(companyId: string) {
     return this.prisma.professional.findMany({
@@ -37,7 +50,35 @@ export class ProfessionalsService {
   }
 
   async create(companyId: string, dto: CreateProfessionalDto) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { plan: true },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const currentCount = await this.prisma.professional.count({
+      where: { companyId },
+    });
+
+    const limits = {
+      BASIC: 2,
+      PROFESSIONAL: 10,
+      ENTERPRISE: 9999,
+    };
+
+    const limit = limits[company.plan] || 2;
+
+    if (currentCount >= limit) {
+      throw new BadRequestException(
+        `Seu plano (${company.plan}) atingiu o limite máximo de ${limit} profissionais. Faça upgrade para cadastrar mais.`,
+      );
+    }
+
     const { serviceIds, ...data } = dto;
+    await this.validateServicesBelongToCompany(companyId, serviceIds);
 
     return this.prisma.professional.create({
       data: {
@@ -69,6 +110,7 @@ export class ProfessionalsService {
     const { serviceIds, ...data } = dto;
 
     if (serviceIds !== undefined) {
+      await this.validateServicesBelongToCompany(companyId, serviceIds);
       await this.prisma.professionalService.deleteMany({
         where: { professionalId: id },
       });
@@ -109,6 +151,7 @@ export class ProfessionalsService {
 
   async assignServices(id: string, companyId: string, serviceIds: string[]) {
     await this.getById(id, companyId);
+    await this.validateServicesBelongToCompany(companyId, serviceIds);
 
     await this.prisma.professionalService.deleteMany({
       where: { professionalId: id },

@@ -12,9 +12,17 @@ import { ClientsService } from './clients.service';
 export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 
+  @Post('send-otp')
+  async sendOtp(@Body() body: { phone: string }) {
+    return this.clientsService.sendOtp(body.phone);
+  }
+
   @Get('appointments')
-  async findAppointments(@Query('phone') phone: string) {
-    return this.clientsService.findAppointmentsByPhone(phone);
+  async findAppointments(
+    @Query('phone') phone: string,
+    @Query('code') code?: string,
+  ) {
+    return this.clientsService.findAppointmentsByPhone(phone, code);
   }
 
   @Post('appointments/:id/cancel')

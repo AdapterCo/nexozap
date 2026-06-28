@@ -41,8 +41,27 @@ export class ConversationsService {
       content,
       companyId,
     );
+    
+    if (conversation.mode !== 'HUMAN') {
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { mode: 'HUMAN' },
+      });
+    }
+
     return this.prisma.message.create({
       data: { conversationId, content, direction: 'OUTBOUND', sender: 'HUMAN' },
+    });
+  }
+
+  async update(companyId: string, id: string, data: { mode?: any; status?: any }) {
+    await this.getConversation(companyId, id);
+    return this.prisma.conversation.update({
+      where: { id },
+      data: {
+        ...(data.mode && { mode: data.mode }),
+        ...(data.status && { status: data.status }),
+      },
     });
   }
 

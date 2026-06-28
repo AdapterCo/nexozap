@@ -135,6 +135,23 @@ export default function ConversasPage() {
                 console.error('Erro ao enviar mensagem:', err);
               }
             }}
+            onUpdateConversation={async (id: string, data: any) => {
+              try {
+                const response = await api.patch(
+                  `/companies/${company?.id}/conversations/${id}`,
+                  data
+                );
+                if (selectedConversation && selectedConversation.id === id) {
+                  setSelectedConversation({
+                    ...selectedConversation,
+                    ...response.data,
+                  });
+                }
+                fetchConversations();
+              } catch (err) {
+                console.error('Erro ao atualizar conversa:', err);
+              }
+            }}
           />
         </div>
       </div>

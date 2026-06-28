@@ -63,13 +63,17 @@ export class AIService {
     if (dto.allowedHoursEnd !== undefined) data.allowedHoursEnd = dto.allowedHoursEnd;
 
     if (existing) {
-      return this.prisma.aIConfig.update({
+      const updated = await this.prisma.aIConfig.update({
         where: { id: existing.id },
         data,
       });
+      return {
+        ...updated,
+        apiKey: updated.apiKey ? this.maskApiKey(updated.apiKey) : null,
+      };
     }
 
-    return this.prisma.aIConfig.create({
+    const created = await this.prisma.aIConfig.create({
       data: {
         companyId,
         provider: dto.provider || 'OPENAI',
@@ -86,6 +90,11 @@ export class AIService {
         allowedHoursEnd: dto.allowedHoursEnd ?? '22:00',
       },
     });
+
+    return {
+      ...created,
+      apiKey: created.apiKey ? this.maskApiKey(created.apiKey) : null,
+    };
   }
 
   private maskApiKey(value: string) {
@@ -715,7 +724,7 @@ export class AIService {
 
     // Validar disponibilidade do profissional no dia
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = days[appointmentDate.getDay()];
+    const dayName = days[appointmentDate.getUTCDay()];
     if (!professional.availableDays.includes(dayName)) {
       return { error: `Profissional não disponível neste dia da semana (${dayName})` };
     }

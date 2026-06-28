@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
@@ -30,6 +30,33 @@ export class ServicesService {
   }
 
   async create(companyId: string, dto: CreateServiceDto) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { plan: true },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const currentCount = await this.prisma.service.count({
+      where: { companyId },
+    });
+
+    const limits = {
+      BASIC: 5,
+      PROFESSIONAL: 20,
+      ENTERPRISE: 9999,
+    };
+
+    const limit = limits[company.plan] || 5;
+
+    if (currentCount >= limit) {
+      throw new BadRequestException(
+        `Seu plano (${company.plan}) atingiu o limite máximo de ${limit} serviços. Faça upgrade para cadastrar mais.`,
+      );
+    }
+
     return this.prisma.service.create({
       data: {
         companyId,

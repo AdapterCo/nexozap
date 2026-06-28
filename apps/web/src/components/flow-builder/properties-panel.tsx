@@ -152,6 +152,18 @@ export default function PropertiesPanel() {
           <>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
+                Nome da variável
+              </label>
+              <input
+                type="text"
+                value={node.variableName || ''}
+                onChange={(e) => handleChange('variableName', e.target.value)}
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                placeholder="ex: nome_cliente"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
                 Tipo de condição
               </label>
               <select

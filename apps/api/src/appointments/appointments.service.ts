@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { BlockTimeDto } from './dto/block-time.dto';
-import { AppointmentStatus } from '@prisma/client';
+import { AppointmentStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class AppointmentsService {
@@ -138,50 +138,64 @@ export class AppointmentsService {
     return this.formatAppointment(appointment);
   }
 
-  async create(companyId: string, dto: CreateAppointmentDto) {
-    const service = await this.prisma.service.findFirst({
-      where: { id: dto.serviceId, companyId },
+  private async validateAvailability(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    professionalId: string,
+    serviceId: string,
+    dateInput: string | Date,
+    startTime: string,
+    excludeAppointmentId?: string,
+  ) {
+    const service = await tx.service.findFirst({
+      where: { id: serviceId, companyId },
     });
     if (!service) {
       throw new NotFoundException('Serviço não encontrado');
     }
 
-    const professional = await this.prisma.professional.findFirst({
-      where: { id: dto.professionalId, companyId },
+    const professional = await tx.professional.findFirst({
+      where: { id: professionalId, companyId },
     });
     if (!professional) {
       throw new NotFoundException('Profissional não encontrado');
     }
 
-    // Garantir UTC midnight para evitar problemas de fuso ("2026-06-29" → 2026-06-29T00:00:00.000Z)
-    const [dy, dm, dd] = dto.date.split('-').map(Number);
-    const appointmentDate = new Date(Date.UTC(dy, dm - 1, dd));
-    const dayName = this.getDayName(appointmentDate);
+    let appointmentDate: Date;
+    if (typeof dateInput === 'string') {
+      const [dy, dm, dd] = dateInput.split('-').map(Number);
+      appointmentDate = new Date(Date.UTC(dy, dm - 1, dd));
+    } else {
+      const dy = dateInput.getUTCFullYear();
+      const dm = dateInput.getUTCMonth();
+      const dd = dateInput.getUTCDate();
+      appointmentDate = new Date(Date.UTC(dy, dm, dd));
+    }
 
+    const dayName = this.getDayName(appointmentDate);
     if (!professional.availableDays.includes(dayName)) {
       throw new BadRequestException(
         `Profissional não disponível no dia ${dayName}`,
       );
     }
 
-    const company = await this.prisma.company.findUnique({
+    const company = await tx.company.findUnique({
       where: { id: companyId },
     });
-
     if (!company) {
       throw new NotFoundException('Empresa não encontrada');
     }
 
     if (
-      dto.startTime < company.openingTime ||
-      dto.startTime >= company.closingTime
+      startTime < company.openingTime ||
+      startTime >= company.closingTime
     ) {
       throw new BadRequestException(
         `Horário fora do expediente da empresa (${company.openingTime} - ${company.closingTime})`,
       );
     }
 
-    const [startH, startM] = dto.startTime.split(':').map(Number);
+    const [startH, startM] = startTime.split(':').map(Number);
     const totalMinutes = startH * 60 + startM + service.durationMinutes;
     const endH = Math.floor(totalMinutes / 60);
     const endM = totalMinutes % 60;
@@ -193,18 +207,20 @@ export class AppointmentsService {
       );
     }
 
-    const dayStart = new Date(Date.UTC(dy, dm - 1, dd, 0, 0, 0, 0));
-    const dayEnd = new Date(Date.UTC(dy, dm - 1, dd, 23, 59, 59, 999));
+    const dayStart = new Date(appointmentDate);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(appointmentDate);
+    dayEnd.setUTCHours(23, 59, 59, 999);
 
-    const overlappingAppointment = await this.prisma.appointment.findFirst({
+    const overlappingAppointment = await tx.appointment.findFirst({
       where: {
-        professionalId: dto.professionalId,
+        professionalId,
         date: { gte: dayStart, lte: dayEnd },
         status: { notIn: ['CANCELLED'] },
-        id: { not: undefined },
+        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
         AND: [
           { startTime: { lt: endTime } },
-          { endTime: { gt: dto.startTime } },
+          { endTime: { gt: startTime } },
         ],
       },
     });
@@ -215,13 +231,13 @@ export class AppointmentsService {
       );
     }
 
-    const timeBlock = await this.prisma.timeBlock.findFirst({
+    const timeBlock = await tx.timeBlock.findFirst({
       where: {
-        professionalId: dto.professionalId,
+        professionalId,
         date: { gte: dayStart, lte: dayEnd },
         AND: [
           { startTime: { lt: endTime } },
-          { endTime: { gt: dto.startTime } },
+          { endTime: { gt: startTime } },
         ],
       },
     });
@@ -232,26 +248,46 @@ export class AppointmentsService {
       );
     }
 
-    const appointment = await this.prisma.appointment.create({
-      data: {
-        companyId,
-        serviceId: dto.serviceId,
-        professionalId: dto.professionalId,
-        clientName: dto.clientName,
-        clientPhone: dto.clientPhone,
-        clientEmail: dto.clientEmail,
-        date: appointmentDate,
-        startTime: dto.startTime,
-        endTime,
-        notes: dto.notes,
-      },
-      include: {
-        service: true,
-        professional: true,
-      },
-    });
+    return {
+      appointmentDate,
+      endTime,
+    };
+  }
 
-    return appointment;
+  async create(companyId: string, dto: CreateAppointmentDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const { appointmentDate, endTime } = await this.validateAvailability(
+        tx,
+        companyId,
+        dto.professionalId,
+        dto.serviceId,
+        dto.date,
+        dto.startTime,
+      );
+
+      const appointment = await tx.appointment.create({
+        data: {
+          companyId,
+          serviceId: dto.serviceId,
+          professionalId: dto.professionalId,
+          clientName: dto.clientName,
+          clientPhone: dto.clientPhone,
+          clientEmail: dto.clientEmail,
+          date: appointmentDate,
+          startTime: dto.startTime,
+          endTime,
+          notes: dto.notes,
+        },
+        include: {
+          service: true,
+          professional: true,
+        },
+      });
+
+      return this.formatAppointment(appointment);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
   }
 
   async update(
@@ -259,37 +295,75 @@ export class AppointmentsService {
     companyId: string,
     data: Partial<CreateAppointmentDto>,
   ) {
-    await this.getById(id, companyId);
+    return this.prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.findFirst({
+        where: { id, companyId },
+        include: { service: true, professional: true },
+      });
 
-    return this.prisma.appointment.update({
-      where: { id },
-      data: {
-        ...(data.serviceId !== undefined && { serviceId: data.serviceId }),
-        ...(data.professionalId !== undefined && {
-          professionalId: data.professionalId,
-        }),
-        ...(data.clientName !== undefined && { clientName: data.clientName }),
-        ...(data.clientPhone !== undefined && {
-          clientPhone: data.clientPhone,
-        }),
-        ...(data.clientEmail !== undefined && {
-          clientEmail: data.clientEmail,
-        }),
-        ...(data.date !== undefined && { date: new Date(data.date) }),
-        ...(data.startTime !== undefined && { startTime: data.startTime }),
-        ...(data.notes !== undefined && { notes: data.notes }),
-      },
-      include: {
-        service: true,
-        professional: true,
-      },
+      if (!appointment) {
+        throw new NotFoundException('Agendamento não encontrado');
+      }
+
+      const serviceId = data.serviceId !== undefined ? data.serviceId : appointment.serviceId;
+      const professionalId = data.professionalId !== undefined ? data.professionalId : appointment.professionalId;
+      const dateInput = data.date !== undefined ? data.date : appointment.date;
+      const startTime = data.startTime !== undefined ? data.startTime : appointment.startTime;
+
+      const needsValidation =
+        data.serviceId !== undefined ||
+        data.professionalId !== undefined ||
+        data.date !== undefined ||
+        data.startTime !== undefined;
+
+      let appointmentDate = appointment.date;
+      let endTime = appointment.endTime;
+
+      if (needsValidation) {
+        const result = await this.validateAvailability(
+          tx,
+          companyId,
+          professionalId,
+          serviceId,
+          dateInput,
+          startTime,
+          id,
+        );
+        appointmentDate = result.appointmentDate;
+        endTime = result.endTime;
+      }
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: {
+          ...(data.serviceId !== undefined && { serviceId: data.serviceId }),
+          ...(data.professionalId !== undefined && { professionalId: data.professionalId }),
+          ...(data.clientName !== undefined && { clientName: data.clientName }),
+          ...(data.clientPhone !== undefined && { clientPhone: data.clientPhone }),
+          ...(data.clientEmail !== undefined && { clientEmail: data.clientEmail }),
+          ...(needsValidation && {
+            date: appointmentDate,
+            startTime,
+            endTime,
+          }),
+          ...(data.notes !== undefined && { notes: data.notes }),
+        },
+        include: {
+          service: true,
+          professional: true,
+        },
+      });
+
+      return this.formatAppointment(updated);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 
   async updateStatus(id: string, companyId: string, status: AppointmentStatus) {
     await this.getById(id, companyId);
 
-    return this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id },
       data: { status },
       include: {
@@ -297,6 +371,8 @@ export class AppointmentsService {
         professional: true,
       },
     });
+
+    return this.formatAppointment(updated);
   }
 
   async reschedule(
@@ -305,108 +381,41 @@ export class AppointmentsService {
     newDate: string,
     newStartTime: string,
   ) {
-    const appointment = await this.getById(id, companyId);
+    return this.prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.findFirst({
+        where: { id, companyId },
+      });
 
-    const service = await this.prisma.service.findUnique({
-      where: { id: appointment.serviceId },
-    });
+      if (!appointment) {
+        throw new NotFoundException('Agendamento não encontrado');
+      }
 
-    if (!service) {
-      throw new NotFoundException('Serviço não encontrado');
-    }
-
-    const [startH, startM] = newStartTime.split(':').map(Number);
-    const totalMinutes = startH * 60 + startM + service.durationMinutes;
-    const endH = Math.floor(totalMinutes / 60);
-    const endM = totalMinutes % 60;
-    const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-
-    const newDateObj = new Date(newDate);
-    const dayName = this.getDayName(newDateObj);
-
-    const professional = await this.prisma.professional.findUnique({
-      where: { id: appointment.professionalId },
-    });
-
-    if (!professional) {
-      throw new NotFoundException('Profissional não encontrado');
-    }
-
-    if (!professional.availableDays.includes(dayName)) {
-      throw new BadRequestException(
-        `Profissional não disponível no dia ${dayName}`,
+      const { appointmentDate, endTime } = await this.validateAvailability(
+        tx,
+        companyId,
+        appointment.professionalId,
+        appointment.serviceId,
+        newDate,
+        newStartTime,
+        id,
       );
-    }
 
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-    });
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: {
+          date: appointmentDate,
+          startTime: newStartTime,
+          endTime,
+        },
+        include: {
+          service: true,
+          professional: true,
+        },
+      });
 
-    if (!company) {
-      throw new NotFoundException('Empresa não encontrada');
-    }
-
-    if (
-      newStartTime < company.openingTime ||
-      endTime > company.closingTime
-    ) {
-      throw new BadRequestException(
-        'Novo horário fora do expediente da empresa',
-      );
-    }
-
-    const dayStart = new Date(newDateObj);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(newDateObj);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const overlapping = await this.prisma.appointment.findFirst({
-      where: {
-        professionalId: appointment.professionalId,
-        date: { gte: dayStart, lte: dayEnd },
-        status: { notIn: ['CANCELLED'] },
-        id: { not: id },
-        AND: [
-          { startTime: { lt: endTime } },
-          { endTime: { gt: newStartTime } },
-        ],
-      },
-    });
-
-    if (overlapping) {
-      throw new ConflictException(
-        `Conflito de horário com agendamento existente`,
-      );
-    }
-
-    const timeBlock = await this.prisma.timeBlock.findFirst({
-      where: {
-        professionalId: appointment.professionalId,
-        date: { gte: dayStart, lte: dayEnd },
-        AND: [
-          { startTime: { lt: endTime } },
-          { endTime: { gt: newStartTime } },
-        ],
-      },
-    });
-
-    if (timeBlock) {
-      throw new ConflictException(
-        `Horário bloqueado${timeBlock.reason ? ': ' + timeBlock.reason : ''}`,
-      );
-    }
-
-    return this.prisma.appointment.update({
-      where: { id },
-      data: {
-        date: newDateObj,
-        startTime: newStartTime,
-        endTime,
-      },
-      include: {
-        service: true,
-        professional: true,
-      },
+      return this.formatAppointment(updated);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 
@@ -464,6 +473,6 @@ export class AppointmentsService {
       'friday',
       'saturday',
     ];
-    return days[date.getDay()];
+    return days[date.getUTCDay()];
   }
 }

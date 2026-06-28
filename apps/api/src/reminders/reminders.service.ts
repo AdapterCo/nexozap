@@ -44,122 +44,93 @@ export class RemindersService {
   async checkReminders() {
     this.logger.debug('Checking reminders...');
 
-    await this.checkHours24Reminders();
-    await this.checkHours2Reminders();
-    await this.checkAfterServiceReminders();
-  }
-
-  private async checkHours24Reminders() {
     const now = new Date();
-    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const startRange = new Date(now);
+    startRange.setDate(now.getDate() - 1);
+    startRange.setHours(0, 0, 0, 0);
 
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        status: { in: ['SCHEDULED', 'CONFIRMED'] },
-        date: {
-          gte: now,
-          lte: in24Hours,
-        },
-        reminders: {
-          none: {
-            type: 'HOURS_24',
+    const endRange = new Date(now);
+    endRange.setDate(now.getDate() + 2);
+    endRange.setHours(23, 59, 59, 999);
+
+    try {
+      const appointments = await this.prisma.appointment.findMany({
+        where: {
+          status: { in: ['SCHEDULED', 'CONFIRMED', 'COMPLETED'] },
+          date: {
+            gte: startRange,
+            lte: endRange,
           },
         },
-      },
-      include: {
-        service: true,
-        professional: true,
-        company: {
-          include: { notificationSettings: true },
-        },
-      },
-    });
-
-    for (const appointment of appointments) {
-      const settings = appointment.company.notificationSettings;
-      if (settings && !settings.isEnabled) continue;
-      const message = (settings?.hours24Message ||
-        'Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
-        .replace('{hora}', appointment.startTime)
-        .replace('{serviço}', appointment.service.name)
-        .replace('{profissional}', appointment.professional.name);
-
-      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_24', message);
-    }
-  }
-
-  private async checkHours2Reminders() {
-    const now = new Date();
-    const in2Hours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        status: { in: ['SCHEDULED', 'CONFIRMED'] },
-        date: {
-          gte: now,
-          lte: in2Hours,
-        },
-        reminders: {
-          none: {
-            type: 'HOURS_2',
+        include: {
+          service: true,
+          professional: true,
+          reminders: true,
+          company: {
+            include: { notificationSettings: true },
           },
         },
-      },
-      include: {
-        service: true,
-        professional: true,
-        company: {
-          include: { notificationSettings: true },
-        },
-      },
-    });
+      });
 
-    for (const appointment of appointments) {
-      const settings = appointment.company.notificationSettings;
-      if (settings && !settings.isEnabled) continue;
-      const message = (settings?.hours2Message ||
-        'Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
-        .replace('{hora}', appointment.startTime)
-        .replace('{serviço}', appointment.service.name)
-        .replace('{profissional}', appointment.professional.name);
+      for (const appointment of appointments) {
+        const settings = appointment.company.notificationSettings;
+        if (settings && !settings.isEnabled) continue;
 
-      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_2', message);
-    }
-  }
+        const d = appointment.date;
+        const yyyy = d.getUTCFullYear();
+        const mm = d.getUTCMonth();
+        const dd = d.getUTCDate();
 
-  private async checkAfterServiceReminders() {
-    const now = new Date();
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        const [startH, startM] = appointment.startTime.split(':').map(Number);
+        const appointmentStart = new Date(yyyy, mm, dd, startH, startM, 0, 0);
 
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        status: 'COMPLETED',
-        date: {
-          lte: now,
-          gte: twoHoursAgo,
-        },
-        reminders: {
-          none: {
-            type: 'AFTER_SERVICE',
-          },
-        },
-      },
-      include: {
-        service: true,
-        company: {
-          include: { notificationSettings: true },
-        },
-      },
-    });
+        const [endH, endM] = appointment.endTime.split(':').map(Number);
+        const appointmentEnd = new Date(yyyy, mm, dd, endH, endM, 0, 0);
 
-    for (const appointment of appointments) {
-      const settings = appointment.company.notificationSettings;
-      if (settings && !settings.isEnabled) continue;
-      const message =
-        settings?.afterServiceMessage ||
-        'Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.';
+        const diffStart = appointmentStart.getTime() - now.getTime();
+        const diffEnd = now.getTime() - appointmentEnd.getTime();
 
-      await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'AFTER_SERVICE', message);
+        // Check 24h reminders
+        if (appointment.status !== 'COMPLETED' && diffStart > 0 && diffStart <= 24.5 * 60 * 60 * 1000) {
+          const has24h = appointment.reminders.some((r) => r.type === 'HOURS_24');
+          if (!has24h) {
+            const message = (settings?.hours24Message ||
+              'Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              .replace('{hora}', appointment.startTime)
+              .replace('{serviço}', appointment.service.name)
+              .replace('{profissional}', appointment.professional.name);
+
+            await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_24', message);
+          }
+        }
+
+        // Check 2h reminders
+        if (appointment.status !== 'COMPLETED' && diffStart > 0 && diffStart <= 2.5 * 60 * 60 * 1000) {
+          const has2h = appointment.reminders.some((r) => r.type === 'HOURS_2');
+          if (!has2h) {
+            const message = (settings?.hours2Message ||
+              'Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              .replace('{hora}', appointment.startTime)
+              .replace('{serviço}', appointment.service.name)
+              .replace('{profissional}', appointment.professional.name);
+
+            await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'HOURS_2', message);
+          }
+        }
+
+        // Check AFTER_SERVICE reminders
+        if (appointment.status === 'COMPLETED' && diffEnd > 0 && diffEnd <= 2.5 * 60 * 60 * 1000) {
+          const hasAfter = appointment.reminders.some((r) => r.type === 'AFTER_SERVICE');
+          if (!hasAfter) {
+            const message = settings?.afterServiceMessage ||
+              'Obrigado por nos visitar! Como foi sua experiência? Avalie de 1 a 5 estrelas.';
+
+            await this.sendReminder(appointment.id, appointment.clientPhone, appointment.companyId, 'AFTER_SERVICE', message);
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Error checking reminders: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

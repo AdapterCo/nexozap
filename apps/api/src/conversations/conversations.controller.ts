@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../common/guards/company-access.guard';
 import { ConversationsService } from './conversations.service';
@@ -21,5 +21,14 @@ export class ConversationsController {
   @Post(':id/messages')
   send(@Param('companyId') companyId: string, @Param('id') id: string, @Body('content') content: string) {
     return this.conversations.send(companyId, id, content);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('companyId') companyId: string,
+    @Param('id') id: string,
+    @Body() body: { mode?: 'FLOW' | 'AI' | 'HUMAN'; status?: 'ACTIVE' | 'ARCHIVED' },
+  ) {
+    return this.conversations.update(companyId, id, body);
   }
 }

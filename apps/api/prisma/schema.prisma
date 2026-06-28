@@ -105,6 +105,7 @@ model Company {
   aiConfig              AIConfig?
   notificationSettings  NotificationSettings?
   tokenUsage            TokenUsage[]
+  payments              Payment[]
 }
 
 model CompanyUser {
@@ -332,4 +333,19 @@ model NotificationSettings {
   isEnabled           Boolean @default(true)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id           String   @id @default(uuid())
+  companyId    String
+  plan         Plan
+  amount       Float
+  status       String
+  mpPaymentId  String?  @unique
+  qrCode       String?
+  qrCodeBase64 String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

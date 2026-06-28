@@ -1,7 +1,8 @@
-import { IsString, IsOptional, IsArray, IsBoolean, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean, IsObject, IsNotEmpty } from 'class-validator';
 
 export class CreateProfessionalDto {
   @IsString()
+  @IsNotEmpty({ message: 'Nome é obrigatório' })
   name: string;
 
   @IsOptional()

@@ -18,6 +18,7 @@ import { ClientsModule } from './clients/clients.module';
 import { validateEnvironment } from './config/env.validation';
 import { CommonModule } from './common/common.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { BillingModule } from './billing/billing.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -40,6 +41,7 @@ import { HealthController } from './health/health.controller';
     EvaluationsModule,
     ClientsModule,
     ConversationsModule,
+    BillingModule,
   ],
   controllers: [HealthController],
 })

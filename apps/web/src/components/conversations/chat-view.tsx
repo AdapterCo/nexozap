@@ -10,9 +10,10 @@ interface ChatViewProps {
   conversation: Conversation | null;
   messages: Message[];
   onSendMessage: (content: string) => Promise<void>;
+  onUpdateConversation?: (id: string, data: { mode?: 'AI' | 'FLOW' | 'HUMAN'; status?: 'ACTIVE' | 'ARCHIVED' }) => Promise<void>;
 }
 
-export function ChatView({ conversation, messages, onSendMessage }: ChatViewProps) {
+export function ChatView({ conversation, messages, onSendMessage, onUpdateConversation }: ChatViewProps) {
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -67,19 +68,49 @@ export function ChatView({ conversation, messages, onSendMessage }: ChatViewProp
 
   return (
     <div className="bg-white rounded-xl shadow-md h-full flex flex-col">
-      <div className="p-4 border-b border-gray-200 flex items-center gap-3">
-        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-          <span className="text-sm font-medium text-gray-600">
-            {conversation.clientName?.charAt(0) || conversation.clientPhone?.slice(-2)}
-          </span>
-        </div>
-        <div>
-          <p className="font-medium">{conversation.clientName || conversation.clientPhone}</p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">{conversation.clientPhone}</span>
-            {getModeBadge(conversation.mode)}
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+            <span className="text-sm font-medium text-gray-600">
+              {conversation.clientName?.charAt(0) || conversation.clientPhone?.slice(-2)}
+            </span>
+          </div>
+          <div>
+            <p className="font-medium">{conversation.clientName || conversation.clientPhone}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">{conversation.clientPhone}</span>
+              {getModeBadge(conversation.mode)}
+            </div>
           </div>
         </div>
+
+        {onUpdateConversation && (
+          <div className="flex gap-2">
+            {conversation.mode === 'HUMAN' ? (
+              <>
+                <button
+                  onClick={() => onUpdateConversation(conversation.id, { mode: 'FLOW' })}
+                  className="px-3 py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
+                >
+                  Entregar para Fluxo
+                </button>
+                <button
+                  onClick={() => onUpdateConversation(conversation.id, { mode: 'AI' })}
+                  className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+                >
+                  Entregar para IA
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => onUpdateConversation(conversation.id, { mode: 'HUMAN' })}
+                className="px-3 py-1.5 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors border border-orange-200"
+              >
+                Assumir Controle Manual
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

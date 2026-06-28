@@ -696,7 +696,7 @@ export class FlowsService {
             if (!professional) throw new Error('Profissional não encontrado');
 
             const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-            const dayName = days[appointmentDate.getDay()];
+            const dayName = days[appointmentDate.getUTCDay()];
             if (!professional.availableDays.includes(dayName)) {
               throw new Error(`Profissional não disponível neste dia`);
             }
@@ -815,7 +815,7 @@ export class FlowsService {
     if (!company || !professional) return [];
 
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    if (!professional.availableDays.includes(days[date.getDay()])) return [];
+    if (!professional.availableDays.includes(days[date.getUTCDay()])) return [];
 
     const [openH, openM] = company.openingTime.split(':').map(Number);
     const [closeH, closeM] = company.closingTime.split(':').map(Number);

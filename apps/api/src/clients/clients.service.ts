@@ -6,13 +6,17 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class ClientsService {
+  private otpStore = new Map<string, { code: string; exp: number }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   private createAccessToken(appointmentId: string) {
@@ -39,7 +43,62 @@ export class ClientsService {
     }
   }
 
-  async findAppointmentsByPhone(phone: string) {
+  private maskName(name: string): string {
+    if (!name) return '';
+    const parts = name.split(' ');
+    return parts.map(part => {
+      if (part.length <= 2) return part;
+      return part[0] + '*'.repeat(part.length - 2) + part[part.length - 1];
+    }).join(' ');
+  }
+
+  private maskEmail(email?: string | null): string {
+    if (!email) return '';
+    const [user, domain] = email.split('@');
+    if (!user || !domain) return email;
+    const maskedUser = user.length <= 2 
+      ? user 
+      : user[0] + '*'.repeat(user.length - 2) + user[user.length - 1];
+    return `${maskedUser}@${domain}`;
+  }
+
+  private maskPhone(phone: string): string {
+    if (!phone) return '';
+    if (phone.length <= 4) return '****';
+    return '*'.repeat(phone.length - 4) + phone.substring(phone.length - 4);
+  }
+
+  async sendOtp(phone: string) {
+    if (!phone) {
+      throw new BadRequestException('Número de telefone é obrigatório');
+    }
+
+    const latestAppointment = await this.prisma.appointment.findFirst({
+      where: { clientPhone: phone },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!latestAppointment) {
+      return { success: true };
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    this.otpStore.set(phone, { code, exp: Date.now() + 5 * 60_000 });
+
+    try {
+      await this.whatsappService.sendMessage(
+        phone,
+        `Seu código de acesso para o portal NexoZap é: *${code}* (válido por 5 minutos).`,
+        latestAppointment.companyId,
+      );
+    } catch (error) {
+      console.error('Erro ao enviar OTP via WhatsApp:', error);
+    }
+
+    return { success: true };
+  }
+
+  async findAppointmentsByPhone(phone: string, code?: string) {
     if (!phone) {
       throw new BadRequestException('Número de telefone é obrigatório');
     }
@@ -56,10 +115,51 @@ export class ClientsService {
       orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
     });
 
-    return appointments.map((appointment) => ({
-      ...appointment,
-      accessToken: this.createAccessToken(appointment.id),
-    }));
+    let verified = false;
+
+    if (code) {
+      const activeOtp = this.otpStore.get(phone);
+      if (activeOtp && activeOtp.code === code && activeOtp.exp > Date.now()) {
+        verified = true;
+        this.otpStore.delete(phone);
+      } else {
+        throw new BadRequestException('Código de acesso inválido ou expirado');
+      }
+    }
+
+    return appointments.map((appointment) => {
+      if (verified) {
+        return {
+          ...appointment,
+          accessToken: this.createAccessToken(appointment.id),
+        };
+      } else {
+        return {
+          id: appointment.id,
+          date: appointment.date,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          status: appointment.status,
+          clientName: this.maskName(appointment.clientName),
+          clientPhone: this.maskPhone(appointment.clientPhone),
+          clientEmail: this.maskEmail(appointment.clientEmail),
+          notes: appointment.notes ? '***' : null,
+          service: {
+            name: appointment.service.name,
+            durationMinutes: appointment.service.durationMinutes,
+            price: appointment.service.price,
+            color: appointment.service.color,
+          },
+          professional: {
+            name: appointment.professional.name,
+            photo: appointment.professional.photo,
+            specialty: appointment.professional.specialty,
+          },
+          company: appointment.company,
+          accessToken: null,
+        };
+      }
+    });
   }
 
   async cancelAppointment(id: string, accessToken?: string) {
@@ -116,7 +216,7 @@ export class ClientsService {
 
     const newDateObj = new Date(newDate);
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = days[newDateObj.getDay()];
+    const dayName = days[newDateObj.getUTCDay()];
 
     const professional = await this.prisma.professional.findUnique({
       where: { id: appointment.professionalId },
