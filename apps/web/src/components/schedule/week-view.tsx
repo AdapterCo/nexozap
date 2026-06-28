@@ -42,7 +42,11 @@ export default function WeekView({
   const getDayAppointments = useCallback(
     (date: Date) => {
       const dateStr = format(date, 'yyyy-MM-dd');
-      return appointments.filter((a) => a.date === dateStr && a.status !== 'CANCELLED');
+      return appointments.filter((a) => {
+        // a.date pode vir como ISO completo ("2026-06-29T03:00:00.000Z") ou como "yyyy-MM-dd"
+        const aptDate = typeof a.date === 'string' ? a.date.substring(0, 10) : '';
+        return aptDate === dateStr && a.status !== 'CANCELLED';
+      });
     },
     [appointments],
   );

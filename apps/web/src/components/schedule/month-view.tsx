@@ -48,7 +48,10 @@ export default function MonthView({
   const getAppointmentsForDay = useMemo(() => {
     return (date: Date): Appointment[] => {
       const dateStr = format(date, 'yyyy-MM-dd');
-      return appointments.filter((a) => a.date === dateStr && a.status !== 'CANCELLED');
+      return appointments.filter((a) => {
+        const aptDate = typeof a.date === 'string' ? a.date.substring(0, 10) : '';
+        return aptDate === dateStr && a.status !== 'CANCELLED';
+      });
     };
   }, [appointments]);
 

@@ -803,13 +803,14 @@ export class AIService {
   }
 
   buildSystemPrompt(config: any, company: any, services: any[], professionals: any[]) {
-    // IDs incluídos para que a IA passe-os diretamente nas chamadas de tools
+    // IDs ficam no system prompt apenas como referência interna para uso nas tools
+    // A IA recebe instruções explícitas para NUNCA mostrá-los ao cliente
     const servicesList = services
-      .map((s) => `- ${s.name} [ID: ${s.id}]: R$ ${s.price.toFixed(2)}, ${s.durationMinutes} minutos`)
+      .map((s) => `- ${s.name} [ID_INTERNO:${s.id}]: R$ ${s.price.toFixed(2)}, ${s.durationMinutes} minutos`)
       .join('\n');
 
     const professionalsList = professionals
-      .map((p) => `- ${p.name} [ID: ${p.id}]${p.specialty ? ` (${p.specialty})` : ''}`)
+      .map((p) => `- ${p.name} [ID_INTERNO:${p.id}]${p.specialty ? ` (${p.specialty})` : ''}`)
       .join('\n');
 
     const rules = config?.rules?.length
@@ -823,28 +824,37 @@ export class AIService {
     const personality = config?.personality || 'Atencioso, profissional e prestativo';
     const toneOfVoice = config?.toneOfVoice || 'Formal e cordial';
 
+    // Data atual para que a IA resolva referências relativas ("amanhã", "segunda-feira", etc.)
+    const now = new Date();
+    const today = now.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
     return `Você é um assistente virtual da empresa "${company?.name || 'Empresa'}".
 Horário de funcionamento: ${company?.openingTime || '08:00'} às ${company?.closingTime || '18:00'}.
+Data e hora atual: ${today} (${todayISO}).
 
 Personalidade: ${personality}
 Tom de voz: ${toneOfVoice}
 
-Serviços disponíveis:
+Serviços disponíveis (use o ID_INTERNO apenas nas chamadas de ferramentas, NUNCA mostre-o ao cliente):
 ${servicesList || 'Nenhum serviço cadastrado'}
 
-Profissionais disponíveis:
+Profissionais disponíveis (use o ID_INTERNO apenas nas chamadas de ferramentas, NUNCA mostre-o ao cliente):
 ${professionalsList || 'Nenhum profissional cadastrado'}
 
 ${rules ? `Regras:\n${rules}` : ''}
 
 ${faq ? `Perguntas Frequentes:\n${faq}` : ''}
 
-Diretrizes:
+Diretrizes OBRIGATÓRIAS:
+- NUNCA exiba IDs (ID_INTERNO, UUIDs ou códigos técnicos) nas mensagens para o cliente
+- Ao mencionar serviços ou profissionais, use apenas o nome (ex: "Barba", "Daniel")
 - Seja breve e direto nas respostas (WhatsApp)
 - Ao agendar, confirme os dados com o cliente antes de criar o agendamento
 - Sempre cumprimente adequadamente
 - Se o cliente quiser cancelar, confirme antes de executar
 - Disponível apenas durante o horário de funcionamento
-- Não invente informações sobre serviços ou profissionais`;
+- Não invente informações sobre serviços ou profissionais
+- Para resolver datas relativas ("amanhã", "segunda-feira", etc.), use a data atual fornecida acima`;
   }
 }

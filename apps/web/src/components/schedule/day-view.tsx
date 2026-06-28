@@ -39,7 +39,10 @@ export default function DayView({
   }, []);
 
   const dayAppointments = useMemo(() => {
-    return appointments.filter((a) => a.date === dateStr && a.status !== 'CANCELLED');
+    return appointments.filter((a) => {
+      const aptDate = typeof a.date === 'string' ? a.date.substring(0, 10) : '';
+      return aptDate === dateStr && a.status !== 'CANCELLED';
+    });
   }, [appointments, dateStr]);
 
   const getSlotAppointments = useCallback(
