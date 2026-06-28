@@ -26,12 +26,7 @@ export default function FlowEditorPage() {
   const [saving, setSaving] = useState(false);
   const [editingName, setEditingName] = useState(false);
 
-  useEffect(() => {
-    if (!flowId || !company?.id) return;
-    loadFlow();
-  }, [flowId, company?.id]);
-
-  const loadFlow = async () => {
+  const loadFlow = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get(`/companies/${company?.id}/flows/${flowId}`);
@@ -45,7 +40,12 @@ export default function FlowEditorPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [company?.id, flowId, setFlow]);
+
+  useEffect(() => {
+    if (!flowId || !company?.id) return;
+    loadFlow();
+  }, [flowId, company?.id, loadFlow]);
 
   const handleSave = async () => {
     setSaving(true);

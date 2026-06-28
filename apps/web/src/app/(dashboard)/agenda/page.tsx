@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   startOfWeek,
   endOfWeek,
@@ -50,12 +50,7 @@ export default function AgendaPage() {
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [professionalDropdownOpen, setProfessionalDropdownOpen] = useState(false);
 
-  useEffect(() => {
-    if (!company?.id) return;
-    fetchData();
-  }, [company?.id]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!company?.id) return;
     setLoading(true);
     try {
@@ -74,7 +69,12 @@ export default function AgendaPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    fetchData();
+  }, [company?.id, fetchData]);
 
   const filteredAppointments = useMemo(() => {
     if (professionalFilter === 'all') return appointments;

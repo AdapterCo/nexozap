@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, GitBranch, ArrowRight } from 'lucide-react';
 import useAuthStore from '@/stores/auth-store';
@@ -24,12 +24,7 @@ export default function FluxosPage() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!company?.id) return;
-    fetchFlows();
-  }, [company?.id]);
-
-  const fetchFlows = async () => {
+  const fetchFlows = useCallback(async () => {
     if (!company?.id) return;
     setLoading(true);
     try {
@@ -40,7 +35,12 @@ export default function FluxosPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    fetchFlows();
+  }, [company?.id, fetchFlows]);
 
   const handleToggleActive = async (flow: Flow) => {
     try {

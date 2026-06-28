@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Plus, Scissors, Clock, DollarSign, Trash2, Edit2 } from 'lucide-react';
 import ServiceForm from '@/components/services/service-form';
 import useAuthStore from '@/stores/auth-store';
@@ -17,12 +17,7 @@ export default function ServicosPage() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!company?.id) return;
-    fetchServices();
-  }, [company?.id]);
-
-  const fetchServices = async () => {
+  const fetchServices = useCallback(async () => {
     if (!company?.id) return;
     setLoading(true);
     try {
@@ -33,7 +28,12 @@ export default function ServicosPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    fetchServices();
+  }, [company?.id, fetchServices]);
 
   const handleToggleActive = async (service: Service) => {
     try {

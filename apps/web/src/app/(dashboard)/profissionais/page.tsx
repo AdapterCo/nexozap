@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Plus, Users, Edit2, Trash2 } from 'lucide-react';
 import ProfessionalForm from '@/components/professionals/professional-form';
 import useAuthStore from '@/stores/auth-store';
@@ -42,12 +42,7 @@ export default function ProfissionaisPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingProfessional, setEditingProfessional] = useState<Professional | null>(null);
 
-  useEffect(() => {
-    if (!company?.id) return;
-    fetchProfessionals();
-  }, [company?.id]);
-
-  const fetchProfessionals = async () => {
+  const fetchProfessionals = useCallback(async () => {
     if (!company?.id) return;
     setLoading(true);
     try {
@@ -58,7 +53,12 @@ export default function ProfissionaisPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    fetchProfessionals();
+  }, [company?.id, fetchProfessionals]);
 
   const handleToggleActive = async (professional: Professional) => {
     try {

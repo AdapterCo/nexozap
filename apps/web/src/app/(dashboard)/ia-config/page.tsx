@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { Brain, Save } from 'lucide-react'
 import api from '@/lib/api'
 import useAuthStore from '@/stores/auth-store'
@@ -30,12 +30,7 @@ export default function IaConfigPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    fetchConfig()
-    fetchUsage()
-  }, [])
-
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     if (!company?.id) return
     try {
       setLoading(true)
@@ -60,9 +55,9 @@ export default function IaConfigPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [company?.id])
 
-  const fetchUsage = async () => {
+  const fetchUsage = useCallback(async () => {
     if (!company?.id) return
     try {
       const res = await api.get(`/dashboard/${company.id}/stats`)
@@ -71,7 +66,12 @@ export default function IaConfigPage() {
       }
     } catch {
     }
-  }
+  }, [company?.id])
+
+  useEffect(() => {
+    fetchConfig()
+    fetchUsage()
+  }, [fetchConfig, fetchUsage])
 
   const handleSave = async () => {
     if (!company?.id) return

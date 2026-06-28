@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { Check, X, CreditCard, Users, MessageSquare, CalendarCheck, QrCode, Copy, Lock, Loader2, CheckCircle2 } from 'lucide-react'
 import api from '@/lib/api'
 import useAuthStore from '@/stores/auth-store'
@@ -108,11 +108,7 @@ export function PlanInfo() {
     docNumber: '',
   })
 
-  useEffect(() => {
-    fetchPlan()
-  }, [company?.id])
-
-  const fetchPlan = async () => {
+  const fetchPlan = useCallback(async () => {
     try {
       if (!company?.id) return
       const res = await api.get(`/companies/${company.id}/billing/plan`)
@@ -124,7 +120,11 @@ export function PlanInfo() {
     } catch (err) {
       console.error('Erro ao buscar plano:', err)
     }
-  }
+  }, [company?.id])
+
+  useEffect(() => {
+    fetchPlan()
+  }, [fetchPlan])
 
   // Polling for Pix status
   useEffect(() => {
@@ -148,7 +148,7 @@ export function PlanInfo() {
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [paymentResult])
+  }, [company, fetchPlan, paymentResult, setCompany])
 
   const handleCopyPix = () => {
     if (!paymentResult?.qrCode) return

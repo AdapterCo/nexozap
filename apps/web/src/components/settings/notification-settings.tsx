@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { Bell, Save, RotateCcw } from 'lucide-react'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -33,11 +33,7 @@ export function NotificationSettings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    fetchConfig()
-  }, [company?.id])
-
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       if (!company?.id) return
       const res = await api.get(`/companies/${company.id}/notifications/config`)
@@ -51,7 +47,11 @@ export function NotificationSettings() {
       }
     } catch {
     }
-  }
+  }, [company?.id])
+
+  useEffect(() => {
+    fetchConfig()
+  }, [fetchConfig])
 
   const update = (partial: Partial<NotificationConfig>) => {
     setConfig((prev) => ({ ...prev, ...partial }))

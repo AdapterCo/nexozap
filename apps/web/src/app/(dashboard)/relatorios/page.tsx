@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { BarChart3, Calendar } from 'lucide-react'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -55,11 +55,7 @@ export default function RelatoriosPage() {
   const [reportData, setReportData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    fetchReport()
-  }, [from, to, activeTab, company?.id])
-
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     try {
       setLoading(true)
       if (!company?.id) return
@@ -70,7 +66,11 @@ export default function RelatoriosPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [company?.id, from, to])
+
+  useEffect(() => {
+    fetchReport()
+  }, [activeTab, fetchReport])
 
   const applyPreset = (preset: (typeof presets)[number]) => {
     const { from: f, to: t } = preset.getValue()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import {
   LineChart,
   Line,
@@ -30,11 +30,7 @@ export function UsageChart() {
   const [summary, setSummary] = useState<UsageSummary>({ totalMonth: 0, estimatedCost: 0 })
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchUsage()
-  }, [company?.id])
-
-  const fetchUsage = async () => {
+  const fetchUsage = useCallback(async () => {
     try {
       if (!company?.id) return
       const res = await api.get(`/companies/${company.id}/ai-usage`)
@@ -50,7 +46,11 @@ export function UsageChart() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [company?.id])
+
+  useEffect(() => {
+    fetchUsage()
+  }, [fetchUsage])
 
   const formatTokens = (n: number) => {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
