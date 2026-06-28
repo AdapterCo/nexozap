@@ -688,7 +688,7 @@ export class FlowsService {
 
           // Parsear data local
           const [year, month, day] = dateStr.split('-').map(Number);
-          const appointmentDate = new Date(year, month - 1, day);
+          const appointmentDate = new Date(Date.UTC(year, month - 1, day));
 
           // Validar profissional (se especificado)
           if (professionalId) {
@@ -805,9 +805,9 @@ export class FlowsService {
   /** Buscar slots disponíveis para um profissional em uma data */
   private async getAvailableSlots(professionalId: string, dateStr: string, companyId: string): Promise<string[]> {
     const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
-    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     const professional = await this.prisma.professional.findUnique({ where: { id: professionalId } });

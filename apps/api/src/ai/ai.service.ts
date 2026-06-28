@@ -710,7 +710,8 @@ export class AIService {
 
     // Parsear como data local para evitar deslocamento de fuso
     const [year, month, day] = data.date.split('-').map(Number);
-    const appointmentDate = new Date(year, month - 1, day);
+    // UTC midnight para garantir consistência com o frontend (evita deslocamento de fuso)
+    const appointmentDate = new Date(Date.UTC(year, month - 1, day));
 
     // Validar disponibilidade do profissional no dia
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -733,8 +734,8 @@ export class AIService {
     }
 
     // Verificar conflitos com outros agendamentos
-    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
-    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+    const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
     const overlapping = await this.prisma.appointment.findFirst({
       where: {

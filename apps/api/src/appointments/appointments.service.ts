@@ -13,6 +13,16 @@ import { AppointmentStatus } from '@prisma/client';
 export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
+  /** Normaliza o campo `date` para "yyyy-MM-dd" puro, eliminando fuso horário */
+  private formatAppointment(apt: any) {
+    if (!apt) return apt;
+    const d = apt.date instanceof Date ? apt.date : new Date(apt.date);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return { ...apt, date: `${yyyy}-${mm}-${dd}` };
+  }
+
   async list(
     companyId: string,
     filters: {
@@ -53,7 +63,7 @@ export class AppointmentsService {
       }
     }
 
-    return this.prisma.appointment.findMany({
+    const rows = await this.prisma.appointment.findMany({
       where,
       include: {
         service: true,
@@ -61,6 +71,7 @@ export class AppointmentsService {
       },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
     });
+    return rows.map((r) => this.formatAppointment(r));
   }
 
   async listToday(companyId: string) {
@@ -70,7 +81,7 @@ export class AppointmentsService {
     const dayEnd = new Date(now);
     dayEnd.setHours(23, 59, 59, 999);
 
-    return this.prisma.appointment.findMany({
+    const rows = await this.prisma.appointment.findMany({
       where: {
         companyId,
         date: { gte: dayStart, lte: dayEnd },
@@ -81,6 +92,7 @@ export class AppointmentsService {
       },
       orderBy: { startTime: 'asc' },
     });
+    return rows.map((r) => this.formatAppointment(r));
   }
 
   async listWeek(companyId: string) {
@@ -96,7 +108,7 @@ export class AppointmentsService {
     sunday.setDate(monday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
 
-    return this.prisma.appointment.findMany({
+    const rows = await this.prisma.appointment.findMany({
       where: {
         companyId,
         date: { gte: monday, lte: sunday },
@@ -107,6 +119,7 @@ export class AppointmentsService {
       },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
     });
+    return rows.map((r) => this.formatAppointment(r));
   }
 
   async getById(id: string, companyId: string) {
@@ -122,7 +135,7 @@ export class AppointmentsService {
       throw new NotFoundException('Agendamento não encontrado');
     }
 
-    return appointment;
+    return this.formatAppointment(appointment);
   }
 
   async create(companyId: string, dto: CreateAppointmentDto) {
@@ -140,7 +153,9 @@ export class AppointmentsService {
       throw new NotFoundException('Profissional não encontrado');
     }
 
-    const appointmentDate = new Date(dto.date);
+    // Garantir UTC midnight para evitar problemas de fuso ("2026-06-29" → 2026-06-29T00:00:00.000Z)
+    const [dy, dm, dd] = dto.date.split('-').map(Number);
+    const appointmentDate = new Date(Date.UTC(dy, dm - 1, dd));
     const dayName = this.getDayName(appointmentDate);
 
     if (!professional.availableDays.includes(dayName)) {
@@ -178,10 +193,8 @@ export class AppointmentsService {
       );
     }
 
-    const dayStart = new Date(appointmentDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(appointmentDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayStart = new Date(Date.UTC(dy, dm - 1, dd, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(dy, dm - 1, dd, 23, 59, 59, 999));
 
     const overlappingAppointment = await this.prisma.appointment.findFirst({
       where: {
