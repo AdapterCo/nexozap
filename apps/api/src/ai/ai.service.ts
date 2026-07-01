@@ -638,12 +638,47 @@ export class AIService {
     }
   }
 
+  private parseDateString(dateStr: any): Date | null {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+
+    // Formato DD/MM/AAAA ou DD-MM-AAAA
+    const brMatch = dateStr.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (brMatch) {
+      const [, d, m, y] = brMatch;
+      const date = new Date(Number(y), Number(m) - 1, Number(d));
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    // Formato AAAA-MM-DD ou AAAA/MM/DD
+    const isoMatch = dateStr.match(/^(\d{4})[/-](\d{2})[/-](\d{2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const date = new Date(Number(y), Number(m) - 1, Number(d));
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    // fallback standard parsing
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) return parsed;
+
+    return null;
+  }
+
   private async getAvailableSlots(professionalId: string, dateStr: string, companyId: string) {
-    // Parsear como data local para evitar deslocamento de fuso (new Date('YYYY-MM-DD') usa UTC)
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0);
-    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+    if (!professionalId) {
+      return { error: 'O ID do profissional é obrigatório.' };
+    }
+    const parsedDate = this.parseDateString(dateStr);
+    if (!parsedDate) {
+      return { error: 'Formato de data inválido. Por favor, forneça uma data válida (ex: AAAA-MM-DD ou DD/MM/AAAA).' };
+    }
+    const year = parsedDate.getFullYear();
+    const month = parsedDate.getMonth();
+    const day = parsedDate.getDate();
+
+    const date = new Date(year, month, day);
+    const dayStart = new Date(year, month, day, 0, 0, 0, 0);
+    const dayEnd = new Date(year, month, day, 23, 59, 59, 999);
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     const professional = await this.prisma.professional.findUnique({ where: { id: professionalId } });
@@ -700,7 +735,7 @@ export class AIService {
       if (!isOccupied) slots.push(slotTime);
     }
 
-    return { slots, date: dateStr, professionalId };
+    return { slots, date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`, professionalId };
   }
 
   private async createAppointment(
@@ -708,6 +743,10 @@ export class AIService {
     data: { serviceId: string; professionalId: string; clientName: string; clientPhone: string; date: string; time: string },
     defaultPhone: string,
   ) {
+    if (!data.serviceId || !data.professionalId || !data.clientName || !data.date || !data.time) {
+      return { error: 'Parâmetros obrigatórios ausentes. Por favor, forneça profissional, serviço, nome do cliente, data e horário.' };
+    }
+
     const service = await this.prisma.service.findFirst({ where: { id: data.serviceId, companyId } });
     if (!service) return { error: 'Serviço não encontrado' };
 
@@ -717,10 +756,16 @@ export class AIService {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) return { error: 'Empresa não encontrada' };
 
-    // Parsear como data local para evitar deslocamento de fuso
-    const [year, month, day] = data.date.split('-').map(Number);
+    const parsedDate = this.parseDateString(data.date);
+    if (!parsedDate) {
+      return { error: 'Formato de data inválido. Por favor, use o formato AAAA-MM-DD ou DD/MM/AAAA.' };
+    }
+    const year = parsedDate.getFullYear();
+    const month = parsedDate.getMonth();
+    const day = parsedDate.getDate();
+
     // UTC midnight para garantir consistência com o frontend (evita deslocamento de fuso)
-    const appointmentDate = new Date(Date.UTC(year, month - 1, day));
+    const appointmentDate = new Date(Date.UTC(year, month, day));
 
     // Validar disponibilidade do profissional no dia
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -734,6 +779,11 @@ export class AIService {
       return { error: `Horário fora do expediente da empresa (${company.openingTime} - ${company.closingTime})` };
     }
 
+    const timeMatch = data.time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!timeMatch) {
+      return { error: 'Formato de horário inválido. Use o formato HH:MM.' };
+    }
+
     const [startH, startM] = data.time.split(':').map(Number);
     const totalMinutes = startH * 60 + startM + service.durationMinutes;
     const endTime = `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
@@ -743,8 +793,8 @@ export class AIService {
     }
 
     // Verificar conflitos com outros agendamentos
-    const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-    const dayEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+    const dayStart = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
     const overlapping = await this.prisma.appointment.findFirst({
       where: {
@@ -790,7 +840,7 @@ export class AIService {
         id: appointment.id,
         service: appointment.service.name,
         professional: appointment.professional.name,
-        date: data.date,
+        date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
         time: data.time,
         endTime,
       },
