@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../common/guards/company-access.guard';
@@ -34,9 +34,29 @@ export class BillingController {
     return this.billingService.getPayment(companyId, paymentId);
   }
 
-  @Post('billing/webhook')
+  /**
+   * Consulta o status real do pagamento na API do Mercado Pago.
+   * Usado pelo frontend para polling ativo após criação de uma cobrança.
+   */
+  @UseGuards(JwtAuthGuard, CompanyAccessGuard)
+  @Get('companies/:companyId/billing/payments/:paymentId/check')
+  async checkPaymentStatus(
+    @Param('companyId') companyId: string,
+    @Param('paymentId') paymentId: string,
+  ) {
+    return this.billingService.checkPaymentStatus(companyId, paymentId);
+  }
+
+  /**
+   * Cancela um pagamento pendente (chamado pelo frontend após timeout de 3 minutos).
+   */
+  @UseGuards(JwtAuthGuard, CompanyAccessGuard)
+  @Put('companies/:companyId/billing/payments/:paymentId/cancel')
   @HttpCode(HttpStatus.OK)
-  async handleWebhook(@Body() body: any) {
-    return this.billingService.handleWebhook(body);
+  async cancelPayment(
+    @Param('companyId') companyId: string,
+    @Param('paymentId') paymentId: string,
+  ) {
+    return this.billingService.cancelPayment(companyId, paymentId);
   }
 }

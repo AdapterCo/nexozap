@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useState, useEffect } from 'react'
-import { Check, X, CreditCard, Users, MessageSquare, CalendarCheck, QrCode, Copy, Lock, Loader2, CheckCircle2 } from 'lucide-react'
+import { useCallback, useState, useEffect, useRef } from 'react'
+import { Check, X, CreditCard, Users, MessageSquare, CalendarCheck, QrCode, Copy, Lock, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 import api from '@/lib/api'
 import useAuthStore from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
@@ -84,7 +84,12 @@ const plans: Record<string, PlanDetails> = {
   },
 }
 
-const MP_PUBLIC_KEY = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || 'APP_USR-da9d42ff-df4a-43c3-888e-cbfb40a5a3a7'
+const MP_PUBLIC_KEY = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || ''
+
+/** Duração máxima do polling em segundos (3 minutos) */
+const POLLING_TIMEOUT_SECONDS = 180
+/** Intervalo entre cada consulta ao backend em ms */
+const POLLING_INTERVAL_MS = 3000
 
 export function PlanInfo() {
   const { company, setCompany } = useAuthStore()
@@ -92,12 +97,19 @@ export function PlanInfo() {
   const [planLimits, setPlanLimits] = useState<PlanDetails['limits']>(plans.basico.limits)
   const [selectedPlan, setSelectedPlan] = useState<{ key: string; details: PlanDetails } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'pix'>('pix')
-  
+
   // Checkout states
   const [loading, setLoading] = useState(false)
   const [mpLoaded, setMpLoaded] = useState(false)
   const [paymentResult, setPaymentResult] = useState<any>(null)
   const [copied, setCopied] = useState(false)
+
+  // Polling states
+  const [timeoutReached, setTimeoutReached] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState(POLLING_TIMEOUT_SECONDS)
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Card Form Inputs
   const [cardInputs, setCardInputs] = useState({
@@ -107,6 +119,15 @@ export function PlanInfo() {
     securityCode: '',
     docNumber: '',
   })
+
+  const clearPolling = useCallback(() => {
+    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current)
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    pollingIntervalRef.current = null
+    countdownIntervalRef.current = null
+    timeoutRef.current = null
+  }, [])
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -126,29 +147,71 @@ export function PlanInfo() {
     fetchPlan()
   }, [fetchPlan])
 
-  // Polling for Pix status
-  useEffect(() => {
-    if (!paymentResult || paymentResult.status !== 'PENDING' || paymentResult.qrCode === undefined) return
+  /** Inicia polling ativo com timeout de 3 minutos para pagamentos Pix pendentes */
+  const startPixPolling = useCallback((payment: any) => {
+    if (!company?.id) return
 
-    const interval = setInterval(async () => {
+    clearPolling()
+    setTimeoutReached(false)
+    setSecondsLeft(POLLING_TIMEOUT_SECONDS)
+
+    // Countdown visual regressivo (atualiza a cada 1s)
+    countdownIntervalRef.current = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(0, prev - 1))
+    }, 1000)
+
+    // Polling de status a cada 3s
+    pollingIntervalRef.current = setInterval(async () => {
       try {
-        const res = await api.get(`/companies/${company?.id}/billing/payments/${paymentResult.id}`)
-        if (res.data && res.data.status === 'APPROVED') {
+        const res = await api.get(`/companies/${company.id}/billing/payments/${payment.id}/check`)
+        if (res.data?.status === 'APPROVED') {
+          clearPolling()
           setPaymentResult(res.data)
-          clearInterval(interval)
-          // Atualiza dados da empresa
           if (company) {
             setCompany({ ...company, plan: res.data.plan })
           }
           fetchPlan()
+        } else if (res.data?.status === 'CANCELLED' || res.data?.status === 'REJECTED') {
+          clearPolling()
+          setTimeoutReached(true)
+          setPaymentResult(null)
         }
       } catch (err) {
-        console.error('Erro no polling do Pix:', err)
+        console.error('Erro no polling de status Pix:', err)
       }
-    }, 3000)
+    }, POLLING_INTERVAL_MS)
 
-    return () => clearInterval(interval)
-  }, [company, fetchPlan, paymentResult, setCompany])
+    // Timeout global de 3 minutos
+    timeoutRef.current = setTimeout(async () => {
+      clearPolling()
+      setTimeoutReached(true)
+
+      // Cancela o pagamento no backend
+      try {
+        await api.put(`/companies/${company.id}/billing/payments/${payment.id}/cancel`)
+      } catch (err) {
+        console.error('Erro ao cancelar pagamento por timeout:', err)
+      }
+
+      setPaymentResult(null)
+    }, POLLING_TIMEOUT_SECONDS * 1000)
+  }, [clearPolling, company, fetchPlan, setCompany])
+
+  // Inicia polling automaticamente quando um Pix pendente é criado
+  useEffect(() => {
+    if (paymentResult && paymentResult.status === 'PENDING' && paymentResult.qrCode !== undefined) {
+      startPixPolling(paymentResult)
+    }
+    return () => {
+      // Limpa apenas o countdown ao desmontar o efeito sem cancelar o polling global
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentResult?.id])
+
+  // Limpa todos os timers ao desmontar o componente
+  useEffect(() => {
+    return () => clearPolling()
+  }, [clearPolling])
 
   const handleCopyPix = () => {
     if (!paymentResult?.qrCode) return
@@ -162,6 +225,7 @@ export function PlanInfo() {
     if (!selectedPlan || !company?.id) return
 
     setLoading(true)
+    setTimeoutReached(false)
     const backendPlanCode = ({ basico: 'BASIC', profissional: 'PROFESSIONAL', empresarial: 'ENTERPRISE' } as Record<string, string>)[selectedPlan.key]
 
     if (paymentMethod === 'pix') {
@@ -186,7 +250,7 @@ export function PlanInfo() {
 
       try {
         const mp = new window.MercadoPago(MP_PUBLIC_KEY)
-        
+
         // Parse expiry
         const [expMonth, expYear] = cardInputs.expirationDate.split('/')
         if (!expMonth || !expYear) {
@@ -238,11 +302,18 @@ export function PlanInfo() {
         }
       } catch (err: any) {
         console.error(err)
-        alert(err.message || 'Erro ao processar pagamento com cartão.')
+        alert(err.response?.data?.message || err.message || 'Erro ao processar pagamento com cartão.')
       } finally {
         setLoading(false)
       }
     }
+  }
+
+  const handleRetry = () => {
+    clearPolling()
+    setTimeoutReached(false)
+    setPaymentResult(null)
+    setSecondsLeft(POLLING_TIMEOUT_SECONDS)
   }
 
   const currentPlan = plans[currentPlanKey]
@@ -268,10 +339,17 @@ export function PlanInfo() {
     },
   ]
 
+  /** Formata segundos em MM:SS */
+  const formatCountdown = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0')
+    const s = (secs % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
+  }
+
   return (
     <div className="space-y-6">
-      <Script 
-        src="https://sdk.mercadopago.com/js/v2" 
+      <Script
+        src="https://sdk.mercadopago.com/js/v2"
         onLoad={() => setMpLoaded(true)}
       />
 
@@ -282,8 +360,8 @@ export function PlanInfo() {
             {Object.entries(plans).map(([key, details]) => {
               const isCurrent = key === currentPlanKey
               return (
-                <div 
-                  key={key} 
+                <div
+                  key={key}
                   className={cn(
                     "flex flex-col rounded-2xl border bg-white p-6 shadow-sm relative transition-all duration-200",
                     isCurrent ? "border-purple-600 ring-2 ring-purple-600/10" : "border-gray-200 hover:border-gray-300"
@@ -321,11 +399,12 @@ export function PlanInfo() {
                     onClick={() => {
                       setSelectedPlan({ key, details })
                       setPaymentResult(null)
+                      setTimeoutReached(false)
                     }}
                     className={cn(
                       "w-full rounded-xl py-3 text-center text-sm font-semibold transition-all",
-                      isCurrent 
-                        ? "bg-purple-50 text-purple-700 cursor-default" 
+                      isCurrent
+                        ? "bg-purple-50 text-purple-700 cursor-default"
                         : "bg-purple-600 text-white hover:bg-purple-700 shadow-sm"
                     )}
                   >
@@ -382,8 +461,13 @@ export function PlanInfo() {
               <span className="text-xs font-semibold text-purple-600 uppercase tracking-wider">Checkout Seguro</span>
               <h2 className="text-lg font-bold text-gray-900">Assinatura - Plano {selectedPlan.details.name}</h2>
             </div>
-            <button 
-              onClick={() => setSelectedPlan(null)}
+            <button
+              onClick={() => {
+                clearPolling()
+                setSelectedPlan(null)
+                setPaymentResult(null)
+                setTimeoutReached(false)
+              }}
               className="text-gray-400 hover:text-gray-500 text-sm font-medium"
             >
               Cancelar
@@ -391,7 +475,41 @@ export function PlanInfo() {
           </div>
 
           <div className="p-6">
-            {!paymentResult ? (
+            {/* Estado de timeout — pagamento expirou */}
+            {timeoutReached && (
+              <div className="flex flex-col items-center text-center p-6 space-y-5">
+                <div className="h-16 w-16 bg-red-50 rounded-full flex items-center justify-center border border-red-200">
+                  <AlertCircle className="h-10 w-10 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Pagamento não identificado</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Não recebemos a confirmação do pagamento dentro do prazo de 3 minutos.
+                    A cobrança foi cancelada automaticamente.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleRetry}
+                    className="bg-purple-600 text-white rounded-xl px-6 py-2.5 text-sm font-semibold hover:bg-purple-700 transition-colors"
+                  >
+                    Tentar novamente
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedPlan(null)
+                      setTimeoutReached(false)
+                    }}
+                    className="bg-gray-100 text-gray-700 rounded-xl px-6 py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors"
+                  >
+                    Voltar aos planos
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Formulário de pagamento */}
+            {!paymentResult && !timeoutReached && (
               <form onSubmit={handleCheckoutSubmit} className="space-y-6">
                 {/* Seleção do Meio de Pagamento */}
                 <div>
@@ -402,8 +520,8 @@ export function PlanInfo() {
                       onClick={() => setPaymentMethod('pix')}
                       className={cn(
                         "flex flex-col items-center justify-center border-2 rounded-xl p-4 gap-2 transition-all",
-                        paymentMethod === 'pix' 
-                          ? "border-purple-600 bg-purple-50/30 text-purple-700" 
+                        paymentMethod === 'pix'
+                          ? "border-purple-600 bg-purple-50/30 text-purple-700"
                           : "border-gray-200 text-gray-600 hover:border-gray-300"
                       )}
                     >
@@ -415,8 +533,8 @@ export function PlanInfo() {
                       onClick={() => setPaymentMethod('credit_card')}
                       className={cn(
                         "flex flex-col items-center justify-center border-2 rounded-xl p-4 gap-2 transition-all",
-                        paymentMethod === 'credit_card' 
-                          ? "border-purple-600 bg-purple-50/30 text-purple-700" 
+                        paymentMethod === 'credit_card'
+                          ? "border-purple-600 bg-purple-50/30 text-purple-700"
                           : "border-gray-200 text-gray-600 hover:border-gray-300"
                       )}
                     >
@@ -535,8 +653,10 @@ export function PlanInfo() {
                   )}
                 </button>
               </form>
-            ) : (
-              /* Resultado do Pagamento */
+            )}
+
+            {/* Resultado do Pagamento */}
+            {paymentResult && !timeoutReached && (
               <div className="flex flex-col items-center text-center p-6 space-y-6">
                 {paymentResult.status === 'APPROVED' ? (
                   <>
@@ -558,7 +678,7 @@ export function PlanInfo() {
                     </button>
                   </>
                 ) : (
-                  /* Pix Pending */
+                  /* Pix Pending com countdown */
                   <>
                     <div>
                       <h3 className="text-lg font-bold text-gray-900">Escaneie o QR Code Pix</h3>
@@ -567,8 +687,8 @@ export function PlanInfo() {
 
                     {paymentResult.qrCodeBase64 && (
                       <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm flex items-center justify-center">
-                        <img 
-                          src={`data:image/png;base64,${paymentResult.qrCodeBase64}`} 
+                        <img
+                          src={`data:image/png;base64,${paymentResult.qrCodeBase64}`}
                           alt="Pix QR Code"
                           className="h-44 w-44 object-contain"
                         />
@@ -597,9 +717,29 @@ export function PlanInfo() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs text-gray-500 pt-2 animate-pulse">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-600" />
-                      Aguardando confirmação de pagamento do banco...
+                    {/* Countdown e status de polling */}
+                    <div className="w-full max-w-md space-y-3">
+                      {/* Barra de progresso do tempo */}
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div
+                          className={cn(
+                            "h-1.5 rounded-full transition-all duration-1000",
+                            secondsLeft > 60 ? "bg-purple-500" : secondsLeft > 30 ? "bg-yellow-500" : "bg-red-500"
+                          )}
+                          style={{ width: `${(secondsLeft / POLLING_TIMEOUT_SECONDS) * 100}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <div className="flex items-center gap-1.5 animate-pulse">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-600" />
+                          Aguardando confirmação do banco...
+                        </div>
+                        <div className="flex items-center gap-1 font-mono font-semibold text-gray-700">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatCountdown(secondsLeft)}
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}

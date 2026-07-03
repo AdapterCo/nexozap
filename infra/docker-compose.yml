@@ -49,6 +49,8 @@ services:
       APP_URL: ${DOMAIN:-nexozap.adapterco.com.br}
       API_URL: api.${DOMAIN:-nexozap.adapterco.com.br}
       SESSIONS_DIR: /app/whatsapp-sessions
+      MERCADO_PAGO_ACCESS_TOKEN: ${MERCADO_PAGO_ACCESS_TOKEN}
+      MERCADO_PAGO_PUBLIC_KEY: ${MERCADO_PAGO_PUBLIC_KEY}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -83,6 +85,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: "https://api.${DOMAIN:-nexozap.adapterco.com.br}"
         INTERNAL_API_URL: "http://api:3001"
+        NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: "${MERCADO_PAGO_PUBLIC_KEY}"
     container_name: nexozap-web
     restart: unless-stopped
     expose:
@@ -93,6 +96,7 @@ services:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: "https://api.${DOMAIN:-nexozap.adapterco.com.br}"
       INTERNAL_API_URL: "http://api:3001"
+      NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: "${MERCADO_PAGO_PUBLIC_KEY}"
     depends_on:
       api:
         condition: service_healthy

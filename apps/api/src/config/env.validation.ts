@@ -1,4 +1,4 @@
-const REQUIRED_ENV_VARS = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY'] as const;
+const REQUIRED_ENV_VARS = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY', 'MERCADO_PAGO_ACCESS_TOKEN'] as const;
 
 export function validateEnvironment(config: Record<string, unknown>) {
   const missing = REQUIRED_ENV_VARS.filter((key) => {

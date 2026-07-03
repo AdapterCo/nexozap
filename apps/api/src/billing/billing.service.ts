@@ -70,7 +70,7 @@ export class BillingService {
       identificationNumber?: string;
     },
   ) {
-    const planPrices = {
+    const planPrices: Record<Plan, number> = {
       BASIC: 1.00,
       PROFESSIONAL: 1.50,
       ENTERPRISE: 2.00,
@@ -82,6 +82,8 @@ export class BillingService {
     }
 
     if (paymentMethod === 'pix') {
+      let mpPayment: any;
+
       try {
         const mpPayload = {
           transaction_amount: amount,
@@ -104,41 +106,32 @@ export class BillingService {
           }),
         );
 
-        const mpPayment = response.data;
-
-        const payment = await this.prisma.payment.create({
-          data: {
-            companyId,
-            plan,
-            amount,
-            status: 'PENDING',
-            mpPaymentId: String(mpPayment.id),
-            qrCode: mpPayment.point_of_interaction?.transaction_data?.qr_code,
-            qrCodeBase64: mpPayment.point_of_interaction?.transaction_data?.qr_code_base64,
-          },
-        });
-
-        return payment;
+        mpPayment = response.data;
       } catch (err) {
-        this.logger.error(`Erro ao criar pagamento Pix no Mercado Pago: ${err.message}`, err.response?.data);
-        // Fallback mock payment for dev environment if MP Access Token is invalid
-        this.logger.log('Gerando pagamento Pix simulado/mock para ambiente de teste');
-        return this.prisma.payment.create({
-          data: {
-            companyId,
-            plan,
-            amount,
-            status: 'PENDING',
-            mpPaymentId: 'MOCK-PIX-' + Math.floor(Math.random() * 100000),
-            qrCode: '00020126580014br.gov.bcb.pix0136mockkey-123-abc-456-def-789-ghi52040000530398654041.505802BR5907NexoZap6009Sao Paulo62070503***6304724E',
-            qrCodeBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-          },
-        });
+        const detail = err?.response?.data ? JSON.stringify(err.response.data) : err?.message;
+        this.logger.error(`Erro ao criar pagamento Pix no Mercado Pago: ${detail}`);
+        throw new BadRequestException(`Erro ao gerar cobrança Pix no Mercado Pago: ${detail}`);
       }
+
+      const payment = await this.prisma.payment.create({
+        data: {
+          companyId,
+          plan,
+          amount,
+          status: 'PENDING',
+          mpPaymentId: String(mpPayment.id),
+          qrCode: mpPayment.point_of_interaction?.transaction_data?.qr_code,
+          qrCodeBase64: mpPayment.point_of_interaction?.transaction_data?.qr_code_base64,
+        },
+      });
+
+      return payment;
     } else {
       if (!cardData?.token || !cardData?.paymentMethodId) {
         throw new BadRequestException('Dados de cartão de crédito são necessários');
       }
+
+      let mpPayment: any;
 
       try {
         const mpPayload = {
@@ -163,49 +156,39 @@ export class BillingService {
           }),
         );
 
-        const mpPayment = response.data;
-        const mpStatus = mpPayment.status === 'approved' ? 'APPROVED' : mpPayment.status === 'rejected' ? 'REJECTED' : 'PENDING';
-
-        const payment = await this.prisma.payment.create({
-          data: {
-            companyId,
-            plan,
-            amount,
-            status: mpStatus,
-            mpPaymentId: String(mpPayment.id),
-          },
-        });
-
-        if (mpStatus === 'APPROVED') {
-          await this.prisma.company.update({
-            where: { id: companyId },
-            data: { plan },
-          });
-        }
-
-        return payment;
+        mpPayment = response.data;
       } catch (err) {
-        this.logger.error(`Erro ao criar pagamento de Cartão no Mercado Pago: ${err.message}`, err.response?.data);
-        
-        // Simular sucesso automático para fins de desenvolvimento
-        this.logger.log('Processando simulação de cartão aprovado para ambiente de teste');
-        const payment = await this.prisma.payment.create({
-          data: {
-            companyId,
-            plan,
-            amount,
-            status: 'APPROVED',
-            mpPaymentId: 'MOCK-CARD-' + Math.floor(Math.random() * 100000),
-          },
-        });
+        const detail = err?.response?.data ? JSON.stringify(err.response.data) : err?.message;
+        this.logger.error(`Erro ao criar pagamento de Cartão no Mercado Pago: ${detail}`);
+        throw new BadRequestException(`Erro ao processar pagamento com cartão: ${detail}`);
+      }
 
+      const mpStatus = mpPayment.status === 'approved' ? 'APPROVED' : mpPayment.status === 'rejected' ? 'REJECTED' : 'PENDING';
+
+      const payment = await this.prisma.payment.create({
+        data: {
+          companyId,
+          plan,
+          amount,
+          status: mpStatus,
+          mpPaymentId: String(mpPayment.id),
+        },
+      });
+
+      if (mpStatus === 'APPROVED') {
         await this.prisma.company.update({
           where: { id: companyId },
           data: { plan },
         });
-
-        return payment;
+        this.logger.log(`Cartão aprovado imediatamente. Plano ${plan} ativado para empresa ${companyId}.`);
       }
+
+      if (mpStatus === 'REJECTED') {
+        const reason = mpPayment.status_detail || 'desconhecido';
+        throw new BadRequestException(`Pagamento recusado pelo emissor (${reason}). Verifique os dados do cartão.`);
+      }
+
+      return payment;
     }
   }
 
@@ -221,46 +204,111 @@ export class BillingService {
     return payment;
   }
 
-  async handleWebhook(body: any) {
-    this.logger.log(`Webhook recebido do Mercado Pago: ${JSON.stringify(body)}`);
+  /**
+   * Consulta o status atualizado do pagamento diretamente na API do Mercado Pago,
+   * persiste a atualização no banco e, se aprovado, ativa o plano da empresa.
+   * Usado pelo frontend para polling ativo (sem webhook).
+   */
+  async checkPaymentStatus(companyId: string, paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, companyId },
+    });
 
-    const id = body.data?.id || body.resource?.split('/').pop();
-    const topic = body.type || body.topic;
+    if (!payment) {
+      throw new NotFoundException('Pagamento não encontrado');
+    }
 
-    if (id && (topic === 'payment' || topic === 'merchant_order')) {
-      try {
-        const response = await firstValueFrom(
-          this.httpService.get(`https://api.mercadopago.com/v1/payments/${id}`, {
-            headers: this.mpHeaders,
-          }),
-        );
+    // Se já tem status final, retorna diretamente sem consultar o MP
+    if (payment.status === 'APPROVED' || payment.status === 'REJECTED' || payment.status === 'CANCELLED') {
+      return payment;
+    }
 
-        const mpPayment = response.data;
+    if (!payment.mpPaymentId) {
+      return payment;
+    }
 
-        if (mpPayment.status === 'approved') {
-          const payment = await this.prisma.payment.findUnique({
-            where: { mpPaymentId: String(id) },
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`https://api.mercadopago.com/v1/payments/${payment.mpPaymentId}`, {
+          headers: this.mpHeaders,
+        }),
+      );
+
+      const mpPayment = response.data;
+      const mpStatus: string = mpPayment.status;
+
+      const newStatus =
+        mpStatus === 'approved' ? 'APPROVED' :
+        mpStatus === 'rejected' ? 'REJECTED' :
+        mpStatus === 'cancelled' ? 'CANCELLED' :
+        'PENDING';
+
+      if (newStatus !== payment.status) {
+        const updatedPayment = await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: newStatus },
+        });
+
+        if (newStatus === 'APPROVED') {
+          await this.prisma.company.update({
+            where: { id: companyId },
+            data: { plan: payment.plan },
           });
-
-          if (payment && payment.status !== 'APPROVED') {
-            await this.prisma.$transaction([
-              this.prisma.payment.update({
-                where: { id: payment.id },
-                data: { status: 'APPROVED' },
-              }),
-              this.prisma.company.update({
-                where: { id: payment.companyId },
-                data: { plan: payment.plan },
-              }),
-            ]);
-            this.logger.log(`Pagamento ${id} aprovado. Plano ${payment.plan} ativado para empresa ${payment.companyId}.`);
-          }
+          this.logger.log(`Pagamento ${payment.mpPaymentId} aprovado via polling. Plano ${payment.plan} ativado para empresa ${companyId}.`);
         }
+
+        return updatedPayment;
+      }
+
+      return payment;
+    } catch (err) {
+      // Em caso de erro ao consultar o MP (ex: rate limit), retorna o status atual do DB sem falhar
+      const detail = err?.response?.data ? JSON.stringify(err.response.data) : err?.message;
+      this.logger.warn(`Erro ao consultar status do pagamento ${payment.mpPaymentId} no MP: ${detail}`);
+      return payment;
+    }
+  }
+
+  /**
+   * Cancela um pagamento pendente no Mercado Pago e atualiza o banco.
+   * Chamado quando o frontend detecta timeout de 3 minutos sem confirmação.
+   */
+  async cancelPayment(companyId: string, paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, companyId },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Pagamento não encontrado');
+    }
+
+    if (payment.status !== 'PENDING') {
+      // Já foi processado, retorna o estado atual sem erro
+      return payment;
+    }
+
+    // Tenta cancelar no MP (apenas pagamentos Pix pendentes podem ser cancelados)
+    if (payment.mpPaymentId && !payment.mpPaymentId.startsWith('MOCK-')) {
+      try {
+        await firstValueFrom(
+          this.httpService.put(
+            `https://api.mercadopago.com/v1/payments/${payment.mpPaymentId}`,
+            { status: 'cancelled' },
+            { headers: this.mpHeaders },
+          ),
+        );
+        this.logger.log(`Pagamento ${payment.mpPaymentId} cancelado no MP por timeout.`);
       } catch (err) {
-        this.logger.error(`Erro ao consultar detalhes do pagamento no Webhook do Mercado Pago: ${err.message}`);
+        // Ignora erros de cancelamento (o MP pode já ter expirado o pagamento)
+        this.logger.warn(`Aviso ao tentar cancelar ${payment.mpPaymentId} no MP: ${err?.message}`);
       }
     }
 
-    return { received: true };
+    const updatedPayment = await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: 'CANCELLED' },
+    });
+
+    return updatedPayment;
   }
 }
