@@ -257,6 +257,14 @@ export class AIService {
       this.prisma.professional.findMany({ where: { companyId, isActive: true } }),
     ]);
 
+    if (!config) {
+      throw new BadRequestException('Configuracao de IA nao encontrada para esta empresa.');
+    }
+
+    if (!config.isActive) {
+      throw new BadRequestException('Assistente de IA desativado para esta empresa.');
+    }
+
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
@@ -304,7 +312,9 @@ export class AIService {
           break;
       }
     } catch (error) {
-      this.logger.error(`AI Provider ${provider} error: ${error.message}`);
+      this.logger.error(
+        `AI Provider ${provider} (${model}) error: ${this.getProviderErrorMessage(error)}`,
+      );
       throw new BadRequestException(`Erro ao processar mensagem com IA (${provider})`);
     }
 
@@ -323,6 +333,22 @@ export class AIService {
     }
 
     return { response: responseText, tokensUsed: totalTokens, provider, model };
+  }
+
+  private getProviderErrorMessage(error: unknown): string {
+    const err = error as any;
+    const responseData = err?.response?.data;
+
+    if (responseData) {
+      if (typeof responseData === 'string') return responseData;
+      try {
+        return JSON.stringify(responseData);
+      } catch {
+        return String(responseData);
+      }
+    }
+
+    return err?.message || 'Erro desconhecido';
   }
 
   private getDefaultModel(provider: AIProviderDto): string {

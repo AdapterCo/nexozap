@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { CommonModule } from '../common/common.module';
+import { AIModule } from '../ai/ai.module';
 
 @Module({
-  imports: [HttpModule, CommonModule],
+  imports: [CommonModule, AIModule],
   controllers: [WhatsAppController],
   providers: [WhatsAppService],
   exports: [WhatsAppService],

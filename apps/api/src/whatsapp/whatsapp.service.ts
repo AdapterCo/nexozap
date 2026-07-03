@@ -1,8 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, BadRequestException, NotFoundException } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { EncryptionService } from '../common/security/encryption.service';
+import { AIService } from '../ai/ai.service';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -36,8 +35,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly httpService: HttpService,
-    private readonly encryption: EncryptionService,
+    private readonly aiService: AIService,
   ) {
     this.sessionsDir = path.resolve(
       this.configService.get<string>(
@@ -715,16 +713,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     if (effectiveMode === 'AI' && aiIsActive) {
       try {
-        const { AIService } = await import('../ai/ai.service');
-
-        const aiService = new AIService(
-          this.prisma,
-          this.httpService,
-          this.configService,
-          this.encryption,
-        );
-
-        const result = await aiService.chat(conversation.id, content, companyId);
+        const result = await this.aiService.chat(conversation.id, content, companyId);
         botResponse = result.response;
       } catch (error) {
         const errMsg = this.getErrorMessage(error);

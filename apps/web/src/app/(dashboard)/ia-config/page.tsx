@@ -21,7 +21,7 @@ export default function IaConfigPage() {
     faqs: [] as { question: string; answer: string }[],
     allowedStart: '08:00',
     allowedEnd: '18:00',
-    isActive: true,
+    isActive: false,
     dailyLimit: 100000,
     monthlyLimit: 1000000,
   })
@@ -46,7 +46,7 @@ export default function IaConfigPage() {
           faqs: res.data.faq || [],
           allowedStart: res.data.allowedHoursStart || '08:00',
           allowedEnd: res.data.allowedHoursEnd || '18:00',
-          isActive: res.data.isActive ?? true,
+          isActive: res.data.isActive ?? false,
           dailyLimit: res.data.dailyTokenLimit || 100000,
           monthlyLimit: res.data.monthlyTokenLimit || 1000000,
         })
