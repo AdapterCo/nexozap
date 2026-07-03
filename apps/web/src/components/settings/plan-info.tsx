@@ -510,7 +510,7 @@ export function PlanInfo() {
 
             {/* Formulário de pagamento */}
             {!paymentResult && !timeoutReached && (
-              <form onSubmit={handleCheckoutSubmit} className="space-y-6">
+              <form onSubmit={handleCheckoutSubmit} method="post" action="#" className="space-y-6">
                 {/* Seleção do Meio de Pagamento */}
                 <div>
                   <label className="text-sm font-semibold text-gray-700 block mb-2">Selecione a forma de pagamento</label>

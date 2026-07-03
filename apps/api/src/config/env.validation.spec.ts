@@ -5,11 +5,13 @@ describe('validateEnvironment', () => {
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/nexozap',
     JWT_SECRET: 'a'.repeat(32),
     ENCRYPTION_KEY: 'ab'.repeat(32),
+    MERCADO_PAGO_ACCESS_TOKEN: 'TEST-access-token-for-unit-testing',
   };
 
   it('accepts a complete configuration', () => {
     expect(validateEnvironment({ ...valid })).toEqual(valid);
   });
+
 
   it('rejects missing secrets', () => {
     expect(() => validateEnvironment({ DATABASE_URL: valid.DATABASE_URL })).toThrow('Missing required');
