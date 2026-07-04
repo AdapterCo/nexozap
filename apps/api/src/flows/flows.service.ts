@@ -768,19 +768,36 @@ export class FlowsService {
 
   /** Parse DD/MM/AAAA ou AAAA-MM-DD → AAAA-MM-DD */
   private parseDateInput(input: string): string | null {
+    const clean = input.trim();
+
     // Formato DD/MM/AAAA
-    const brMatch = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const brMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (brMatch) {
-      const [, d, m, y] = brMatch;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (isNaN(date.getTime())) return null;
-      return `${y}-${String(Number(m)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`;
+      const d = Number(brMatch[1]);
+      const m = Number(brMatch[2]);
+      const y = Number(brMatch[3]);
+      if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2020 || y > 2100) return null;
+      const date = new Date(y, m - 1, d);
+      // Rejeitar overflow silencioso do JS (ex: 30/02 → 02/03)
+      if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     }
-    // Formato AAAA-MM-DD
-    const isoMatch = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (isoMatch) return input;
+
+    // Formato AAAA-MM-DD — validar antes de aceitar
+    const isoMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const y = Number(isoMatch[1]);
+      const m = Number(isoMatch[2]);
+      const d = Number(isoMatch[3]);
+      if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2020 || y > 2100) return null;
+      const date = new Date(y, m - 1, d);
+      if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+      return clean;
+    }
+
     return null;
   }
+
 
   /** Parse HH:MM */
   private parseTimeInput(input: string): string | null {
