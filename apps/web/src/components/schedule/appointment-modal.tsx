@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Clock, User, Phone, Mail, FileText, Scissors } from 'lucide-react';
+import { X, Clock, User, Phone, Mail, FileText, Scissors, Check, CalendarCheck, XCircle, UserMinus } from 'lucide-react';
 import { Appointment, Professional, Service, TIME_SLOTS } from './types';
-import { cn } from '@/lib/utils';
+import { cn, getStatusLabel } from '@/lib/utils';
 import api from '@/lib/api';
 import useAuthStore from '@/stores/auth-store';
 
@@ -39,6 +39,22 @@ export default function AppointmentModal({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const handleUpdateStatus = async (newStatus: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW') => {
+    if (!appointment || !company?.id) return;
+    setUpdatingStatus(true);
+    try {
+      await api.patch(`/companies/${company.id}/appointments/${appointment.id}/status`, {
+        status: newStatus,
+      });
+      onSave();
+    } catch {
+      setErrors({ general: 'Erro ao atualizar status do agendamento' });
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
   useEffect(() => {
     if (appointment) {
@@ -190,6 +206,81 @@ export default function AppointmentModal({
           {errors.general && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
               {errors.general}
+            </div>
+          )}
+
+          {isEditing && appointment && (
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status do Agendamento</span>
+                <span className={cn("text-xs font-bold px-2.5 py-1 rounded-full", 
+                  appointment.status === 'SCHEDULED' && 'bg-blue-50 text-blue-700 border border-blue-200',
+                  appointment.status === 'CONFIRMED' && 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+                  appointment.status === 'COMPLETED' && 'bg-green-50 text-green-700 border border-green-200',
+                  appointment.status === 'CANCELLED' && 'bg-red-50 text-red-700 border border-red-200',
+                  appointment.status === 'NO_SHOW' && 'bg-amber-50 text-amber-700 border border-amber-200',
+                )}>
+                  {getStatusLabel(appointment.status)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStatus('CONFIRMED')}
+                  disabled={updatingStatus || appointment.status === 'CONFIRMED'}
+                  className={cn(
+                    "px-2 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border",
+                    appointment.status === 'CONFIRMED'
+                      ? "bg-indigo-50 border-indigo-200 text-indigo-700 cursor-default"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <CalendarCheck size={14} />
+                  Confirmar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStatus('COMPLETED')}
+                  disabled={updatingStatus || appointment.status === 'COMPLETED'}
+                  className={cn(
+                    "px-2 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border",
+                    appointment.status === 'COMPLETED'
+                      ? "bg-green-50 border-green-200 text-green-700 cursor-default"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <Check size={14} />
+                  Concluir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStatus('NO_SHOW')}
+                  disabled={updatingStatus || appointment.status === 'NO_SHOW'}
+                  className={cn(
+                    "px-2 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border",
+                    appointment.status === 'NO_SHOW'
+                      ? "bg-amber-50 border-amber-200 text-amber-700 cursor-default"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <UserMinus size={14} />
+                  Faltou
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStatus('CANCELLED')}
+                  disabled={updatingStatus || appointment.status === 'CANCELLED'}
+                  className={cn(
+                    "px-2 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border",
+                    appointment.status === 'CANCELLED'
+                      ? "bg-red-50 border-red-200 text-red-700 cursor-default"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <XCircle size={14} />
+                  Cancelar
+                </button>
+              </div>
             </div>
           )}
 
