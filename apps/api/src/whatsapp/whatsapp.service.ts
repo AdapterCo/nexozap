@@ -695,19 +695,21 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     let botResponse: string | null = null;
 
-    // Determinar modo efetivo: se mode='AI' mas IA está inativa, usar FLOW
+    // Determinar modo efetivo: migrar AI↔FLOW de acordo com estado atual da IA
     const aiIsActive = !!company?.aiConfig?.isActive;
     const effectiveMode =
-      conversation.mode === 'AI' && !aiIsActive ? 'FLOW' : conversation.mode;
+      conversation.mode === 'AI' && !aiIsActive ? 'FLOW' :
+      conversation.mode === 'FLOW' && aiIsActive ? 'AI' :
+      conversation.mode;
 
-    // Atualizar mode no banco se mudou (IA foi desativada com conversa em andamento)
+    // Atualizar mode no banco se mudou
     if (effectiveMode !== conversation.mode) {
       this.logger.log(
-        `Conversa ${conversation.id} migrada de AI→FLOW (IA desativada)`,
+        `Conversa ${conversation.id} migrada de ${conversation.mode}→${effectiveMode}`,
       );
       await this.prisma.conversation.update({
         where: { id: conversation.id },
-        data: { mode: 'FLOW' },
+        data: { mode: effectiveMode },
       });
     }
 

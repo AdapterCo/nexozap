@@ -4,8 +4,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  console.log('DATABASE_URL from process.env:', process.env.DATABASE_URL);
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'],
+  });
   
   app.setGlobalPrefix('api');
   
@@ -35,6 +36,5 @@ async function bootstrap() {
   
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`NexoZap API running on port ${port}`);
 }
 bootstrap();

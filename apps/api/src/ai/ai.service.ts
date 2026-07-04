@@ -546,6 +546,37 @@ export class AIService {
       return { responseText: followUp.data.choices[0].message.content, totalTokens };
     }
 
+    // Fallback: LLaMA às vezes retorna <function=name>{...} no content em vez de tool_calls
+    if (choice.message.content) {
+      const llamaCall = this.parseGroqLlamaToolCall(choice.message.content);
+      if (llamaCall) {
+        this.logger.log(`Groq LLaMA tool call detectado no content: ${llamaCall.fnName}`);
+        const toolResult = await this.executeTool(llamaCall.fnName, llamaCall.fnArgs, companyId);
+        const fakeId = `call_${Date.now()}`;
+        messages.push({
+          role: 'assistant',
+          content: llamaCall.textBefore || null,
+          tool_calls: [{
+            id: fakeId,
+            type: 'function',
+            function: { name: llamaCall.fnName, arguments: JSON.stringify(llamaCall.fnArgs) },
+          }],
+        });
+        messages.push({ role: 'tool', tool_call_id: fakeId, content: JSON.stringify(toolResult) });
+
+        const followUp = await firstValueFrom(
+          this.http.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            { model, messages, max_tokens: 1000 },
+            { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
+          ),
+        );
+
+        totalTokens += followUp.data.usage?.total_tokens || 0;
+        return { responseText: followUp.data.choices[0].message.content, totalTokens };
+      }
+    }
+
     return { responseText: choice.message.content, totalTokens };
   }
 
@@ -636,10 +667,35 @@ export class AIService {
 
   private async executeTool(fnName: string, fnArgs: any, companyId: string): Promise<any> {
     switch (fnName) {
-      case 'getAvailableSlots':
-        return this.getAvailableSlots(fnArgs.professionalId, fnArgs.date, companyId);
-      case 'createAppointment':
-        return this.createAppointment(companyId, fnArgs, '');
+      case 'getAvailableSlots': {
+        // Modelo pode enviar nome em vez de UUID — resolver por nome se necessário
+        let professionalId = fnArgs.professionalId as string;
+        if (professionalId && !this.isUUID(professionalId)) {
+          const prof = await this.prisma.professional.findFirst({
+            where: { companyId, name: { contains: professionalId, mode: 'insensitive' }, isActive: true },
+          });
+          if (prof) professionalId = prof.id;
+        }
+        return this.getAvailableSlots(professionalId, fnArgs.date, companyId);
+      }
+      case 'createAppointment': {
+        const args = { ...fnArgs };
+        // Resolver serviceId por nome se não for UUID
+        if (args.serviceId && !this.isUUID(args.serviceId)) {
+          const svc = await this.prisma.service.findFirst({
+            where: { companyId, name: { contains: args.serviceId, mode: 'insensitive' }, isActive: true },
+          });
+          if (svc) args.serviceId = svc.id;
+        }
+        // Resolver professionalId por nome se não for UUID
+        if (args.professionalId && !this.isUUID(args.professionalId)) {
+          const prof = await this.prisma.professional.findFirst({
+            where: { companyId, name: { contains: args.professionalId, mode: 'insensitive' }, isActive: true },
+          });
+          if (prof) args.professionalId = prof.id;
+        }
+        return this.createAppointment(companyId, args, '');
+      }
       case 'cancelAppointment':
         return this.cancelAppointment(fnArgs.appointmentId, companyId);
       case 'getServices': {
@@ -667,27 +723,77 @@ export class AIService {
   private parseDateString(dateStr: any): Date | null {
     if (!dateStr || typeof dateStr !== 'string') return null;
 
+    const clean = dateStr.trim();
+
     // Formato DD/MM/AAAA ou DD-MM-AAAA
-    const brMatch = dateStr.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    const brMatch = clean.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
     if (brMatch) {
-      const [, d, m, y] = brMatch;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) return date;
+      const d = Number(brMatch[1]);
+      const m = Number(brMatch[2]);
+      const y = Number(brMatch[3]);
+      // Rejeitar valores fora dos limites antes de construir a data
+      if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2020 || y > 2100) return null;
+      const date = new Date(y, m - 1, d);
+      // Verificar overflow: JS converte 30/02 para 02/03 silenciosamente
+      if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+      return date;
     }
 
     // Formato AAAA-MM-DD ou AAAA/MM/DD
-    const isoMatch = dateStr.match(/^(\d{4})[/-](\d{2})[/-](\d{2})$/);
+    const isoMatch = clean.match(/^(\d{4})[/\-](\d{2})[/\-](\d{2})$/);
     if (isoMatch) {
-      const [, y, m, d] = isoMatch;
-      const date = new Date(Number(y), Number(m) - 1, Number(d));
-      if (!isNaN(date.getTime())) return date;
+      const y = Number(isoMatch[1]);
+      const m = Number(isoMatch[2]);
+      const d = Number(isoMatch[3]);
+      if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2020 || y > 2100) return null;
+      const date = new Date(y, m - 1, d);
+      if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+      return date;
     }
 
-    // fallback standard parsing
-    const parsed = new Date(dateStr);
-    if (!isNaN(parsed.getTime())) return parsed;
-
+    // Sem fallback genérico — rejeitar formatos desconhecidos para evitar datas acidentais
     return null;
+  }
+
+  /** Retorna data e hora atual no fuso horário de Brasília (America/Sao_Paulo) */
+  private getBrazilDatetime(): { today: string; todayISO: string; currentTime: string } {
+    const now = new Date();
+    const tz = 'America/Sao_Paulo';
+    const today = now.toLocaleDateString('pt-BR', {
+      timeZone: tz,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    // en-CA formata como YYYY-MM-DD
+    const todayISO = now.toLocaleDateString('en-CA', { timeZone: tz });
+    const currentTime = now.toLocaleTimeString('pt-BR', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return { today, todayISO, currentTime };
+  }
+
+  /** Detecta chamadas no formato LLaMA: <function=nome>{...} no content do Groq */
+  private parseGroqLlamaToolCall(content: string): { fnName: string; fnArgs: any; textBefore: string } | null {
+    const match = content.match(/^([\s\S]*?)<function=(\w+)>([\s\S]*?)(?:<\/function>)?$/);
+    if (!match) return null;
+    try {
+      return {
+        textBefore: match[1].trim(),
+        fnName: match[2],
+        fnArgs: JSON.parse(match[3].trim()),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Verifica se um valor é um UUID v4 válido */
+  private isUUID(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
 
   private async getAvailableSlots(professionalId: string, dateStr: string, companyId: string) {
@@ -910,14 +1016,12 @@ export class AIService {
     const personality = config?.personality || 'Atencioso, profissional e prestativo';
     const toneOfVoice = config?.toneOfVoice || 'Formal e cordial';
 
-    // Data atual para que a IA resolva referências relativas ("amanhã", "segunda-feira", etc.)
-    const now = new Date();
-    const today = now.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // Data e hora no fuso horário do Brasil (America/Sao_Paulo)
+    const { today, todayISO, currentTime } = this.getBrazilDatetime();
 
     return `Você é um assistente virtual da empresa "${company?.name || 'Empresa'}".
 Horário de funcionamento: ${company?.openingTime || '08:00'} às ${company?.closingTime || '18:00'}.
-Data e hora atual: ${today} (${todayISO}).
+Data atual (horário de Brasília): ${today} — ${currentTime} — data ISO: ${todayISO}.
 
 Personalidade: ${personality}
 Tom de voz: ${toneOfVoice}
@@ -941,6 +1045,7 @@ Diretrizes OBRIGATÓRIAS:
 - Se o cliente quiser cancelar, confirme antes de executar
 - Disponível apenas durante o horário de funcionamento
 - Não invente informações sobre serviços ou profissionais
-- Para resolver datas relativas ("amanhã", "segunda-feira", etc.), use a data atual fornecida acima`;
+- Para resolver datas relativas ("amanhã", "segunda-feira", etc.), use a data ISO atual fornecida acima
+- OBRIGATÓRIO: ao chamar funções como createAppointment ou getAvailableSlots, use SEMPRE os UUID completos de ID_INTERNO, nunca nomes`;  
   }
 }
