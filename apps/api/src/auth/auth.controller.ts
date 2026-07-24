@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Res } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, UseGuards, Request, Res } from '@nestjs/common';
 import type { CookieOptions, Response } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import { Plan } from '@prisma/client';
 
 class LoginDto {
   @IsEmail()
@@ -28,6 +29,16 @@ class RegisterDto {
   @IsString()
   @MinLength(2)
   companyName: string;
+
+  @IsEnum(Plan)
+  plan: Plan;
+
+  @IsString()
+  paymentMethod: 'credit_card' | 'pix';
+
+  @IsOptional()
+  @IsObject()
+  cardData?: any;
 }
 
 @Controller('auth')
@@ -37,8 +48,27 @@ export class AuthController {
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.authService.register(dto);
-    this.setAuthCookie(response, result.token);
-    return { user: result.user, company: result.company };
+    if (result.token) {
+      this.setAuthCookie(response, result.token);
+    }
+    return result;
+  }
+
+  @Get('check-registration-payment/:paymentId')
+  async checkRegistrationPayment(
+    @Param('paymentId') paymentId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.checkRegistrationPayment(paymentId);
+    if (result.token) {
+      this.setAuthCookie(response, result.token);
+    }
+    return result;
+  }
+
+  @Put('cancel-registration-payment/:paymentId')
+  async cancelRegistrationPayment(@Param('paymentId') paymentId: string) {
+    return this.authService.cancelRegistrationPayment(paymentId);
   }
 
   @Post('login')

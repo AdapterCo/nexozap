@@ -238,6 +238,15 @@ export interface RegisterDto {
   password: string;
   name: string;
   companyName: string;
+  plan: Plan;
+  paymentMethod: 'credit_card' | 'pix';
+  cardData?: {
+    token: string;
+    paymentMethodId: string;
+    email?: string;
+    identificationType?: string;
+    identificationNumber?: string;
+  };
 }
 
 export interface CreateAppointmentDto {

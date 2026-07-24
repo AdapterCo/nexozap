@@ -71,9 +71,9 @@ export class BillingService {
     },
   ) {
     const planPrices: Record<Plan, number> = {
-      BASIC: 1.00,
-      PROFESSIONAL: 1.50,
-      ENTERPRISE: 2.00,
+      BASIC: 39.90,
+      PROFESSIONAL: 79.90,
+      ENTERPRISE: 119.90,
     };
 
     const amount = planPrices[plan];

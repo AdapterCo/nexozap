@@ -27,7 +27,7 @@ interface PlanDetails {
 const plans: Record<string, PlanDetails> = {
   basico: {
     name: 'Essencial',
-    price: '1,00',
+    price: '39,90',
     features: [
       { label: 'Agendamentos ilimitados', included: true },
       { label: '1 número WhatsApp', included: true },
@@ -46,7 +46,7 @@ const plans: Record<string, PlanDetails> = {
   },
   profissional: {
     name: 'Profissional',
-    price: '1,50',
+    price: '79,90',
     features: [
       { label: 'Agendamentos ilimitados', included: true },
       { label: '2 números WhatsApp', included: true },
@@ -65,7 +65,7 @@ const plans: Record<string, PlanDetails> = {
   },
   empresarial: {
     name: 'Empresarial',
-    price: '2,00',
+    price: '119,90',
     features: [
       { label: 'Agendamentos ilimitados', included: true },
       { label: 'WhatsApp ilimitado', included: true },

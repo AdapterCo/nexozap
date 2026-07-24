@@ -28,10 +28,19 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, companyName: string) => Promise<void>;
+  register: (payload: {
+    email: string;
+    password: string;
+    name: string;
+    companyName: string;
+    plan: string;
+    paymentMethod: 'credit_card' | 'pix';
+    cardData?: any;
+  }) => Promise<any>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
   setCompany: (company: Company | null) => void;
+  setAuthData: (user: User, company: Company) => void;
 }
 
 const useAuthStore = create<AuthState>((set) => ({
@@ -41,6 +50,7 @@ const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
 
   setCompany: (company) => set({ company }),
+  setAuthData: (user, company) => set({ user, company, isAuthenticated: true }),
 
   login: async (email: string, password: string) => {
     set({ isLoading: true });
@@ -55,18 +65,18 @@ const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (email: string, password: string, name: string, companyName: string) => {
+  register: async (payload) => {
     set({ isLoading: true });
     try {
-      const response = await api.post('/auth/register', {
-        email,
-        password,
-        name,
-        companyName,
-      });
-      const { user, company } = response.data;
+      const response = await api.post('/auth/register', payload);
+      const data = response.data;
 
-      set({ user, company, isAuthenticated: true, isLoading: false });
+      if (data.token && data.user && data.company) {
+        set({ user: data.user, company: data.company, isAuthenticated: true, isLoading: false });
+      } else {
+        set({ isLoading: false });
+      }
+      return data;
     } catch (error) {
       set({ isLoading: false });
       throw error;
