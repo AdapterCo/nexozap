@@ -95,6 +95,8 @@ export function PlanInfo() {
   const { company, setCompany } = useAuthStore()
   const [currentPlanKey, setCurrentPlanKey] = useState<string>('basico')
   const [planStatus, setPlanStatus] = useState<string>('ACTIVE')
+  const [planActivatedAt, setPlanActivatedAt] = useState<string | null>(null)
+  const [planExpiresAt, setPlanExpiresAt] = useState<string | null>(null)
   const [planLimits, setPlanLimits] = useState<PlanDetails['limits']>(plans.basico.limits)
   const [selectedPlan, setSelectedPlan] = useState<{ key: string; details: PlanDetails } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'pix'>('pix')
@@ -139,6 +141,8 @@ export function PlanInfo() {
         setCurrentPlanKey(key)
         setPlanLimits(res.data.limits)
         setPlanStatus(res.data.planStatus || 'ACTIVE')
+        setPlanActivatedAt(res.data.planActivatedAt || null)
+        setPlanExpiresAt(res.data.planExpiresAt || null)
       }
     } catch (err) {
       console.error('Erro ao buscar plano:', err)
@@ -348,6 +352,12 @@ export function PlanInfo() {
     return `${m}:${s}`
   }
 
+  /** Formata uma data ISO como DD/MM/AAAA (fuso do navegador do usuário) */
+  const formatDate = (iso: string | null) => {
+    if (!iso) return null
+    return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  }
+
   return (
     <div className="space-y-6">
       <Script
@@ -365,6 +375,29 @@ export function PlanInfo() {
               Selecione um plano abaixo para reativar.
             </p>
           </div>
+        </div>
+      )}
+
+      {!selectedPlan && (planActivatedAt || planExpiresAt) && (
+        <div className={cn(
+          "flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border p-4 text-sm",
+          planStatus === 'PAST_DUE' ? "border-red-200 bg-red-50" : "border-gray-200 bg-gray-50"
+        )}>
+          {planActivatedAt && (
+            <div className="flex items-center gap-2 text-gray-700">
+              <CheckCircle2 className="h-4 w-4 text-gray-400 shrink-0" />
+              <span>Plano ativado em <strong className="text-gray-900">{formatDate(planActivatedAt)}</strong></span>
+            </div>
+          )}
+          {planExpiresAt && (
+            <div className={cn("flex items-center gap-2", planStatus === 'PAST_DUE' ? "text-red-700" : "text-gray-700")}>
+              <Clock className="h-4 w-4 shrink-0" />
+              <span>
+                {planStatus === 'PAST_DUE' ? 'Venceu em ' : 'Próxima renovação em '}
+                <strong className={planStatus === 'PAST_DUE' ? "text-red-800" : "text-gray-900"}>{formatDate(planExpiresAt)}</strong>
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -681,6 +714,11 @@ export function PlanInfo() {
                     <div>
                       <h3 className="text-lg font-bold text-gray-900">Plano Ativado com Sucesso!</h3>
                       <p className="text-sm text-gray-500 mt-1">Sua empresa agora tem acesso total às regras do plano {selectedPlan.details.name}.</p>
+                      {planExpiresAt && (
+                        <p className="text-sm text-gray-600 mt-3 bg-gray-50 border border-gray-100 rounded-lg px-4 py-2">
+                          Ativo desde <strong>{formatDate(planActivatedAt) || 'hoje'}</strong>, com renovação prevista para <strong>{formatDate(planExpiresAt)}</strong>.
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => {

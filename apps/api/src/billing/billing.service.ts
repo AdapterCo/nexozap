@@ -53,6 +53,7 @@ export class BillingService {
     return {
       plan: company.plan,
       planStatus: company.planStatus,
+      planActivatedAt: company.planActivatedAt,
       planExpiresAt: company.planExpiresAt,
       limits: {
         appointments: { used: appointmentsUsed, max: currentLimits.appointments },
@@ -182,12 +183,14 @@ export class BillingService {
       });
 
       if (mpStatus === 'APPROVED') {
+        const activatedAt = new Date();
         await this.prisma.company.update({
           where: { id: companyId },
           data: {
             plan,
             planStatus: 'ACTIVE',
-            planExpiresAt: this.addOneMonth(new Date()),
+            planActivatedAt: activatedAt,
+            planExpiresAt: this.addOneMonth(activatedAt),
             mpPreapprovalId: mpPreapproval.id,
           },
         });
@@ -267,12 +270,14 @@ export class BillingService {
         });
 
         if (newStatus === 'APPROVED') {
+          const activatedAt = new Date();
           await this.prisma.company.update({
             where: { id: companyId },
             data: {
               plan: payment.plan,
               planStatus: 'ACTIVE',
-              planExpiresAt: this.addOneMonth(new Date()),
+              planActivatedAt: activatedAt,
+              planExpiresAt: this.addOneMonth(activatedAt),
             },
           });
           this.logger.log(`Pagamento ${payment.mpPaymentId} aprovado via polling. Plano ${payment.plan} ativado para empresa ${companyId}.`);
@@ -438,11 +443,13 @@ export class BillingService {
       },
     });
 
+    const activatedAt = new Date();
     await this.prisma.company.update({
       where: { id: company.id },
       data: {
         planStatus: 'ACTIVE',
-        planExpiresAt: this.addOneMonth(new Date()),
+        planActivatedAt: activatedAt,
+        planExpiresAt: this.addOneMonth(activatedAt),
       },
     });
 
