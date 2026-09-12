@@ -62,6 +62,11 @@ enum AIProvider {
   GEMINI
 }
 
+enum PlanStatus {
+  ACTIVE
+  PAST_DUE
+}
+
 enum ReminderType {
   HOURS_24
   HOURS_2
@@ -82,30 +87,33 @@ model User {
 }
 
 model Company {
-  id           String   @id @default(uuid())
-  name         String
-  ownerName    String
-  whatsapp     String?
-  email        String?
-  address      String?
-  openingTime  String   @default("08:00")
-  closingTime  String   @default("18:00")
-  workingDays  String[] @default(["monday", "tuesday", "wednesday", "thursday", "friday"])
-  plan         Plan     @default(BASIC)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String     @id @default(uuid())
+  name            String
+  ownerName       String
+  whatsapp        String?
+  email           String?
+  address         String?
+  openingTime     String     @default("08:00")
+  closingTime     String     @default("18:00")
+  workingDays     String[]   @default(["monday", "tuesday", "wednesday", "thursday", "friday"])
+  plan            Plan       @default(BASIC)
+  planStatus      PlanStatus @default(ACTIVE)
+  planExpiresAt   DateTime?
+  mpPreapprovalId String?    @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
-  users                 CompanyUser[]
-  whatsappConnections   WhatsAppConnection[]
-  services              Service[]
-  professionals         Professional[]
-  appointments          Appointment[]
-  flows                 Flow[]
-  conversations         Conversation[]
-  aiConfig              AIConfig?
-  notificationSettings  NotificationSettings?
-  tokenUsage            TokenUsage[]
-  payments              Payment[]
+  users                CompanyUser[]
+  whatsappConnections  WhatsAppConnection[]
+  services             Service[]
+  professionals        Professional[]
+  appointments         Appointment[]
+  flows                Flow[]
+  conversations        Conversation[]
+  aiConfig             AIConfig?
+  notificationSettings NotificationSettings?
+  tokenUsage           TokenUsage[]
+  payments             Payment[]
 }
 
 model CompanyUser {
@@ -121,15 +129,15 @@ model CompanyUser {
 }
 
 model WhatsAppConnection {
-  id             String         @id @default(uuid())
-  companyId      String
-  instanceName   String
-  instanceId     String?
-  status         WhatsAppStatus @default(DISCONNECTED)
-  qrcode         String?
-  phone          String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id           String         @id @default(uuid())
+  companyId    String
+  instanceName String
+  instanceId   String?
+  status       WhatsAppStatus @default(DISCONNECTED)
+  qrcode       String?
+  phone        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   conversations Conversation[]
@@ -147,7 +155,7 @@ model Service {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   professionals ProfessionalService[]
   appointments  Appointment[]
 }
@@ -164,7 +172,7 @@ model Professional {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   services      ProfessionalService[]
   appointments  Appointment[]
   workingBlocks WorkingBlock[]
@@ -336,16 +344,17 @@ model NotificationSettings {
 }
 
 model Payment {
-  id           String   @id @default(uuid())
-  companyId    String
-  plan         Plan
-  amount       Float
-  status       String
-  mpPaymentId  String?  @unique
-  qrCode       String?
-  qrCodeBase64 String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String   @id @default(uuid())
+  companyId       String
+  plan            Plan
+  amount          Float
+  status          String
+  mpPaymentId     String?  @unique
+  mpPreapprovalId String?
+  qrCode          String?
+  qrCodeBase64    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

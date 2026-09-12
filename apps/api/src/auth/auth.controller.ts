@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Put, Body, Param, UseGuards, Request, Res } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, Query, UseGuards, Request, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Response } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -45,6 +46,7 @@ class RegisterDto {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.authService.register(dto);
@@ -57,9 +59,10 @@ export class AuthController {
   @Get('check-registration-payment/:paymentId')
   async checkRegistrationPayment(
     @Param('paymentId') paymentId: string,
+    @Query('token') token: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.authService.checkRegistrationPayment(paymentId);
+    const result = await this.authService.checkRegistrationPayment(paymentId, token);
     if (result.token) {
       this.setAuthCookie(response, result.token);
     }
@@ -67,10 +70,11 @@ export class AuthController {
   }
 
   @Put('cancel-registration-payment/:paymentId')
-  async cancelRegistrationPayment(@Param('paymentId') paymentId: string) {
-    return this.authService.cancelRegistrationPayment(paymentId);
+  async cancelRegistrationPayment(@Param('paymentId') paymentId: string, @Query('token') token: string) {
+    return this.authService.cancelRegistrationPayment(paymentId, token);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.authService.login(dto);

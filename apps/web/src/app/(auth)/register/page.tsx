@@ -174,7 +174,9 @@ export default function RegisterPage() {
 
       pollingIntervalRef.current = setInterval(async () => {
         try {
-          const res = await api.get(`/auth/check-registration-payment/${result.paymentId}`);
+          const res = await api.get(
+            `/auth/check-registration-payment/${result.paymentId}?token=${encodeURIComponent(result.registrationToken)}`
+          );
           if (res.data?.status === 'APPROVED') {
             clearPolling();
             if (res.data.user && res.data.company) {
@@ -195,7 +197,9 @@ export default function RegisterPage() {
         clearPolling();
         setTimeoutReached(true);
         try {
-          await api.put(`/auth/cancel-registration-payment/${result.paymentId}`);
+          await api.put(
+            `/auth/cancel-registration-payment/${result.paymentId}?token=${encodeURIComponent(result.registrationToken)}`
+          );
         } catch (err) {
           console.error('Erro ao cancelar cadastro por timeout:', err);
         }

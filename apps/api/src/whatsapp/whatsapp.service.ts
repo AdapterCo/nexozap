@@ -575,6 +575,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async sendMessage(phoneOrJid: string, message: string, companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { planStatus: true },
+    });
+
+    if (company?.planStatus === 'PAST_DUE') {
+      throw new BadRequestException('Assinatura vencida. Renove o plano para continuar enviando mensagens pelo WhatsApp.');
+    }
+
     const sock = this.connections.get(companyId);
 
     if (!sock?.user) {

@@ -11,7 +11,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class ClientsService {
-  private otpStore = new Map<string, { code: string; exp: number }>();
+  private otpStore = new Map<string, { code: string; exp: number; attempts: number }>();
+  private static readonly MAX_OTP_ATTEMPTS = 5;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,7 +84,7 @@ export class ClientsService {
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    this.otpStore.set(phone, { code, exp: Date.now() + 5 * 60_000 });
+    this.otpStore.set(phone, { code, exp: Date.now() + 5 * 60_000, attempts: 0 });
 
     try {
       await this.whatsappService.sendMessage(
@@ -119,12 +120,20 @@ export class ClientsService {
 
     if (code) {
       const activeOtp = this.otpStore.get(phone);
-      if (activeOtp && activeOtp.code === code && activeOtp.exp > Date.now()) {
-        verified = true;
+      if (!activeOtp || activeOtp.exp < Date.now()) {
         this.otpStore.delete(phone);
-      } else {
         throw new BadRequestException('Código de acesso inválido ou expirado');
       }
+      if (activeOtp.attempts >= ClientsService.MAX_OTP_ATTEMPTS) {
+        this.otpStore.delete(phone);
+        throw new BadRequestException('Número de tentativas excedido. Solicite um novo código.');
+      }
+      if (activeOtp.code !== code) {
+        activeOtp.attempts += 1;
+        throw new BadRequestException('Código de acesso inválido ou expirado');
+      }
+      verified = true;
+      this.otpStore.delete(phone);
     }
 
     return appointments.map((appointment) => {

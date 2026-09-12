@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { Plan } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
+import { createHmac, timingSafeEqual } from 'crypto';
+
+const PIX_RENEWAL_WINDOW_DAYS = 3;
 
 @Injectable()
 export class BillingService {
@@ -48,6 +52,8 @@ export class BillingService {
 
     return {
       plan: company.plan,
+      planStatus: company.planStatus,
+      planExpiresAt: company.planExpiresAt,
       limits: {
         appointments: { used: appointmentsUsed, max: currentLimits.appointments },
         whatsapp: { used: whatsappUsed, max: currentLimits.whatsapp },
@@ -131,39 +137,39 @@ export class BillingService {
         throw new BadRequestException('Dados de cartão de crédito são necessários');
       }
 
-      let mpPayment: any;
+      // Cartão assina uma cobrança recorrente mensal (Preapproval) em vez de uma cobrança avulsa,
+      // para que o plano seja renovado automaticamente todo mês pelo Mercado Pago.
+      let mpPreapproval: any;
 
       try {
-        const mpPayload = {
-          transaction_amount: amount,
-          token: cardData.token,
-          description: `Assinatura NexoZap - Plano ${plan}`,
-          installments: cardData.installments || 1,
-          payment_method_id: cardData.paymentMethodId,
-          issuer_id: cardData.issuerId ? Number(cardData.issuerId) : undefined,
-          payer: {
-            email: cardData.email || 'cliente@nexozap.com',
-            identification: {
-              type: cardData.identificationType || 'CPF',
-              number: cardData.identificationNumber || '12345678909',
-            },
+        const preapprovalPayload = {
+          reason: `Assinatura NexoZap - Plano ${plan}`,
+          external_reference: companyId,
+          payer_email: cardData.email || 'cliente@nexozap.com',
+          card_token_id: cardData.token,
+          status: 'authorized',
+          auto_recurring: {
+            frequency: 1,
+            frequency_type: 'months',
+            transaction_amount: amount,
+            currency_id: 'BRL',
           },
         };
 
         const response = await firstValueFrom(
-          this.httpService.post('https://api.mercadopago.com/v1/payments', mpPayload, {
+          this.httpService.post('https://api.mercadopago.com/preapproval', preapprovalPayload, {
             headers: this.mpHeaders,
           }),
         );
 
-        mpPayment = response.data;
+        mpPreapproval = response.data;
       } catch (err) {
         const detail = err?.response?.data ? JSON.stringify(err.response.data) : err?.message;
-        this.logger.error(`Erro ao criar pagamento de Cartão no Mercado Pago: ${detail}`);
+        this.logger.error(`Erro ao criar assinatura de Cartão no Mercado Pago: ${detail}`);
         throw new BadRequestException(`Erro ao processar pagamento com cartão: ${detail}`);
       }
 
-      const mpStatus = mpPayment.status === 'approved' ? 'APPROVED' : mpPayment.status === 'rejected' ? 'REJECTED' : 'PENDING';
+      const mpStatus = mpPreapproval.status === 'authorized' ? 'APPROVED' : mpPreapproval.status === 'cancelled' ? 'REJECTED' : 'PENDING';
 
       const payment = await this.prisma.payment.create({
         data: {
@@ -171,25 +177,36 @@ export class BillingService {
           plan,
           amount,
           status: mpStatus,
-          mpPaymentId: String(mpPayment.id),
+          mpPreapprovalId: mpPreapproval.id,
         },
       });
 
       if (mpStatus === 'APPROVED') {
         await this.prisma.company.update({
           where: { id: companyId },
-          data: { plan },
+          data: {
+            plan,
+            planStatus: 'ACTIVE',
+            planExpiresAt: this.addOneMonth(new Date()),
+            mpPreapprovalId: mpPreapproval.id,
+          },
         });
-        this.logger.log(`Cartão aprovado imediatamente. Plano ${plan} ativado para empresa ${companyId}.`);
+        this.logger.log(`Assinatura recorrente autorizada. Plano ${plan} ativado para empresa ${companyId}.`);
       }
 
       if (mpStatus === 'REJECTED') {
-        const reason = mpPayment.status_detail || 'desconhecido';
+        const reason = mpPreapproval.status_detail || 'desconhecido';
         throw new BadRequestException(`Pagamento recusado pelo emissor (${reason}). Verifique os dados do cartão.`);
       }
 
       return payment;
     }
+  }
+
+  private addOneMonth(date: Date): Date {
+    const result = new Date(date);
+    result.setMonth(result.getMonth() + 1);
+    return result;
   }
 
   async getPayment(companyId: string, paymentId: string) {
@@ -252,7 +269,11 @@ export class BillingService {
         if (newStatus === 'APPROVED') {
           await this.prisma.company.update({
             where: { id: companyId },
-            data: { plan: payment.plan },
+            data: {
+              plan: payment.plan,
+              planStatus: 'ACTIVE',
+              planExpiresAt: this.addOneMonth(new Date()),
+            },
           });
           this.logger.log(`Pagamento ${payment.mpPaymentId} aprovado via polling. Plano ${payment.plan} ativado para empresa ${companyId}.`);
         }
@@ -310,5 +331,167 @@ export class BillingService {
     });
 
     return updatedPayment;
+  }
+
+  /**
+   * Valida a assinatura enviada pelo Mercado Pago no header `x-signature`.
+   * Sem o segredo configurado, apenas loga um aviso — a notificação ainda é
+   * processada, mas o estado só é alterado após confirmação via GET autenticado
+   * na API do MP (nunca a partir do corpo do webhook, que não é confiável sozinho).
+   */
+  private isValidWebhookSignature(headers: Record<string, string>, dataId: string): boolean {
+    const secret = this.config.get<string>('MERCADO_PAGO_WEBHOOK_SECRET');
+    if (!secret) {
+      this.logger.warn('MERCADO_PAGO_WEBHOOK_SECRET não configurado; assinatura do webhook não verificada.');
+      return true;
+    }
+
+    const signatureHeader = headers['x-signature'];
+    const requestId = headers['x-request-id'];
+    if (!signatureHeader) return false;
+
+    const parts: Record<string, string> = {};
+    for (const part of signatureHeader.split(',')) {
+      const [key, value] = part.split('=');
+      if (key && value) parts[key.trim()] = value.trim();
+    }
+
+    const ts = parts['ts'];
+    const hash = parts['v1'];
+    if (!ts || !hash) return false;
+
+    const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
+    const expected = createHmac('sha256', secret).update(manifest).digest('hex');
+
+    return hash.length === expected.length && timingSafeEqual(Buffer.from(hash), Buffer.from(expected));
+  }
+
+  /**
+   * Recebe as notificações do Mercado Pago. Trata apenas eventos de pagamento
+   * ligados a uma assinatura recorrente (Preapproval) já conhecida — o estado
+   * do pagamento é sempre reconsultado via API autenticada, nunca confiado
+   * a partir do corpo da requisição.
+   */
+  async handleMercadoPagoWebhook(
+    headers: Record<string, string>,
+    query: Record<string, string>,
+    body: any,
+  ) {
+    const type = body?.type || query?.type;
+    const dataId = body?.data?.id || query?.['data.id'];
+
+    if (!dataId) return;
+
+    if (!this.isValidWebhookSignature(headers, String(dataId))) {
+      this.logger.warn(`Webhook do Mercado Pago com assinatura inválida (data.id=${dataId}).`);
+      return;
+    }
+
+    if (type === 'payment') {
+      await this.processRecurringPaymentNotification(String(dataId));
+    }
+  }
+
+  private async processRecurringPaymentNotification(mpPaymentId: string) {
+    let mpPayment: any;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
+          headers: this.mpHeaders,
+        }),
+      );
+      mpPayment = response.data;
+    } catch (err) {
+      this.logger.warn(`Não foi possível consultar o pagamento ${mpPaymentId} recebido via webhook: ${err?.message}`);
+      return;
+    }
+
+    const preapprovalId: string | undefined = mpPayment.preapproval_id;
+    const companyId: string | undefined = mpPayment.external_reference;
+
+    if (mpPayment.status !== 'approved' || !preapprovalId || !companyId) {
+      return;
+    }
+
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, mpPreapprovalId: preapprovalId },
+    });
+
+    if (!company) {
+      this.logger.warn(`Webhook de pagamento recorrente sem empresa correspondente (preapproval=${preapprovalId}).`);
+      return;
+    }
+
+    const existing = await this.prisma.payment.findUnique({
+      where: { mpPaymentId: String(mpPayment.id) },
+    });
+    if (existing) return;
+
+    await this.prisma.payment.create({
+      data: {
+        companyId: company.id,
+        plan: company.plan,
+        amount: mpPayment.transaction_amount,
+        status: 'APPROVED',
+        mpPaymentId: String(mpPayment.id),
+        mpPreapprovalId: preapprovalId,
+      },
+    });
+
+    await this.prisma.company.update({
+      where: { id: company.id },
+      data: {
+        planStatus: 'ACTIVE',
+        planExpiresAt: this.addOneMonth(new Date()),
+      },
+    });
+
+    this.logger.log(`Renovação automática confirmada via webhook para empresa ${company.id} (preapproval ${preapprovalId}).`);
+  }
+
+  /**
+   * Roda diariamente: marca como inadimplentes as empresas cujo plano venceu
+   * sem renovação confirmada, e gera automaticamente uma nova cobrança Pix
+   * para quem paga por Pix (que não tem cobrança recorrente automática) e
+   * está próximo do vencimento.
+   */
+  @Cron('0 3 * * *')
+  async enforcePlanExpirations() {
+    const now = new Date();
+
+    const { count } = await this.prisma.company.updateMany({
+      where: { planStatus: 'ACTIVE', planExpiresAt: { lt: now } },
+      data: { planStatus: 'PAST_DUE' },
+    });
+    if (count > 0) {
+      this.logger.log(`${count} empresa(s) marcada(s) como inadimplente(s) por vencimento do plano.`);
+    }
+
+    const renewalWindowEnd = new Date(now.getTime() + PIX_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const dueSoonPixCompanies = await this.prisma.company.findMany({
+      where: {
+        planStatus: 'ACTIVE',
+        mpPreapprovalId: null,
+        planExpiresAt: { gt: now, lte: renewalWindowEnd },
+      },
+    });
+
+    for (const company of dueSoonPixCompanies) {
+      const alreadyPending = await this.prisma.payment.findFirst({
+        where: {
+          companyId: company.id,
+          status: 'PENDING',
+          createdAt: { gt: new Date(now.getTime() - PIX_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
+        },
+      });
+      if (alreadyPending) continue;
+
+      try {
+        await this.createPayment(company.id, company.plan, 'pix');
+        this.logger.log(`Cobrança Pix de renovação gerada automaticamente para empresa ${company.id}.`);
+      } catch (err) {
+        this.logger.warn(`Falha ao gerar cobrança de renovação Pix para empresa ${company.id}: ${err?.message}`);
+      }
+    }
   }
 }

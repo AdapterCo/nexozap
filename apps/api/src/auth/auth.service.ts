@@ -1,6 +1,8 @@
 import { Injectable, ConflictException, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { Plan } from '@prisma/client';
@@ -11,7 +13,24 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private billingService: BillingService,
+    private config: ConfigService,
   ) {}
+
+  private createRegistrationToken(paymentId: string): string {
+    return createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(paymentId)
+      .digest('base64url');
+  }
+
+  private assertRegistrationToken(paymentId: string, token: string | undefined) {
+    if (!token) {
+      throw new UnauthorizedException('Token de confirmação de pagamento obrigatório');
+    }
+    const expected = this.createRegistrationToken(paymentId);
+    if (token.length !== expected.length || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) {
+      throw new UnauthorizedException('Token de confirmação de pagamento inválido');
+    }
+  }
 
   async register(data: {
     email: string;
@@ -80,6 +99,7 @@ export class AuthService {
         // Pix pending
         return {
           paymentId: payment.id,
+          registrationToken: this.createRegistrationToken(payment.id),
           qrCode: payment.qrCode,
           qrCodeBase64: payment.qrCodeBase64,
           status: 'PENDING',
@@ -93,7 +113,9 @@ export class AuthService {
     }
   }
 
-  async checkRegistrationPayment(paymentId: string) {
+  async checkRegistrationPayment(paymentId: string, registrationToken: string | undefined) {
+    this.assertRegistrationToken(paymentId, registrationToken);
+
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
       include: { company: { include: { users: { include: { user: true } } } } },
@@ -123,7 +145,9 @@ export class AuthService {
     };
   }
 
-  async cancelRegistrationPayment(paymentId: string) {
+  async cancelRegistrationPayment(paymentId: string, registrationToken: string | undefined) {
+    this.assertRegistrationToken(paymentId, registrationToken);
+
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
       include: { company: { include: { users: true } } },

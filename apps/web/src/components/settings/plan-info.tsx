@@ -94,6 +94,7 @@ const POLLING_INTERVAL_MS = 3000
 export function PlanInfo() {
   const { company, setCompany } = useAuthStore()
   const [currentPlanKey, setCurrentPlanKey] = useState<string>('basico')
+  const [planStatus, setPlanStatus] = useState<string>('ACTIVE')
   const [planLimits, setPlanLimits] = useState<PlanDetails['limits']>(plans.basico.limits)
   const [selectedPlan, setSelectedPlan] = useState<{ key: string; details: PlanDetails } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'pix'>('pix')
@@ -137,6 +138,7 @@ export function PlanInfo() {
         const key = ({ BASIC: 'basico', PROFESSIONAL: 'profissional', ENTERPRISE: 'empresarial' } as Record<string, string>)[res.data.plan] || 'basico'
         setCurrentPlanKey(key)
         setPlanLimits(res.data.limits)
+        setPlanStatus(res.data.planStatus || 'ACTIVE')
       }
     } catch (err) {
       console.error('Erro ao buscar plano:', err)
@@ -352,6 +354,19 @@ export function PlanInfo() {
         src="https://sdk.mercadopago.com/js/v2"
         onLoad={() => setMpLoaded(true)}
       />
+
+      {planStatus === 'PAST_DUE' && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Assinatura vencida</p>
+            <p className="mt-0.5">
+              O envio de mensagens pelo WhatsApp e o assistente de IA foram pausados até a renovação do pagamento.
+              Selecione um plano abaixo para reativar.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Grid de Planos Disponíveis */}
       {!selectedPlan && (

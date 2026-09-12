@@ -22,10 +22,14 @@ RUN apk add --no-cache git openssl libc6-compat
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/prisma ./prisma
-COPY --from=builder /app/apps/api/package.json ./
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/apps/api/dist ./dist
+COPY --from=builder --chown=node:node /app/apps/api/prisma ./prisma
+COPY --from=builder --chown=node:node /app/apps/api/package.json ./
+
+RUN mkdir -p whatsapp-sessions && chown node:node whatsapp-sessions
+
+USER node
 
 EXPOSE 3001
 CMD ["node", "dist/main.js"]

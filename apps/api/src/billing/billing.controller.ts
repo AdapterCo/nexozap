@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, Query, Headers, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../common/guards/company-access.guard';
@@ -7,6 +7,23 @@ import { Plan } from '@prisma/client';
 @Controller()
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
+
+  /**
+   * Endpoint público chamado pelo Mercado Pago quando uma cobrança da assinatura
+   * recorrente é processada. Não usa guards de autenticação (o MP não tem um token
+   * de usuário) — a integridade é garantida pela validação de assinatura HMAC e
+   * pela reconsulta do pagamento diretamente na API do MP antes de qualquer alteração.
+   */
+  @Post('billing/webhook/mercadopago')
+  @HttpCode(HttpStatus.OK)
+  async handleMercadoPagoWebhook(
+    @Headers() headers: Record<string, string>,
+    @Query() query: Record<string, string>,
+    @Body() body: any,
+  ) {
+    await this.billingService.handleMercadoPagoWebhook(headers, query, body);
+    return { received: true };
+  }
 
   @UseGuards(JwtAuthGuard, CompanyAccessGuard)
   @Get('companies/:companyId/billing/plan')
