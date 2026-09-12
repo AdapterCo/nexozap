@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, BadRequestException,
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AIService } from '../ai/ai.service';
+import { FlowsService } from '../flows/flows.service';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -32,10 +33,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     message: 'QR Code ainda não disponível',
   };
 
+  private readonly messageQueues = new Map<string, Promise<void>>();
+
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly aiService: AIService,
+    private readonly flowsService: FlowsService,
   ) {
     this.sessionsDir = path.resolve(
       this.configService.get<string>(
@@ -626,7 +630,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return message;
   }
 
+  /**
+   * Serializa o processamento por (companyId, remoteJid) para que mensagens em rajada da
+   * mesma conversa não disparem chamadas de IA concorrentes nem gravem `mode` de forma
+   * inconsistente (a leitura+decisão+escrita do modo da conversa não é atômica).
+   */
   private async handleMessage(companyId: string, msg: proto.IWebMessageInfo) {
+    const remoteJid = msg.key?.remoteJid || 'unknown';
+    const queueKey = `${companyId}:${remoteJid}`;
+    const previous = this.messageQueues.get(queueKey) ?? Promise.resolve();
+
+    const current = previous.then(
+      () => this.processIncomingMessage(companyId, msg),
+      () => this.processIncomingMessage(companyId, msg),
+    );
+
+    const settled = current.then(() => undefined, () => undefined);
+    this.messageQueues.set(queueKey, settled);
+    settled.finally(() => {
+      if (this.messageQueues.get(queueKey) === settled) {
+        this.messageQueues.delete(queueKey);
+      }
+    });
+
+    return current;
+  }
+
+  private async processIncomingMessage(companyId: string, msg: proto.IWebMessageInfo) {
     if (msg.key?.fromMe) return;
 
     const remoteJid = msg.key?.remoteJid;
@@ -734,6 +764,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           botResponse = 'No momento estou indisponível. Por favor, tente novamente mais tarde ou entre em contato diretamente conosco.';
         } else if (errMsg.includes('Chave de API')) {
           botResponse = 'Estou com dificuldades técnicas. Por favor, tente novamente em instantes.';
+        } else if (errMsg.includes('horário de atendimento')) {
+          botResponse = 'No momento estamos fora do horário de atendimento automático. Retornaremos assim que possível.';
         } else {
           botResponse = 'Desculpe, estou com dificuldades no momento. Tente novamente em alguns instantes.';
         }
@@ -745,9 +777,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
       if (activeFlow) {
         try {
-          const { FlowsService } = await import('../flows/flows.service');
-          const flowsService = new FlowsService(this.prisma);
-          const result = await flowsService.execute(conversation.id, content, companyId);
+          const result = await this.flowsService.execute(conversation.id, content, companyId);
           botResponse = result.response;
         } catch (error) {
           this.logger.error(`Falha no fluxo: ${this.getErrorMessage(error)}`);

@@ -14,6 +14,8 @@ import { EncryptionService } from '../common/security/encryption.service';
 @Injectable()
 export class AIService {
   private readonly logger = new Logger(AIService.name);
+  /** Tools que o fallback de parsing de texto do Groq/LLaMA pode executar sem contrato de tool_call estruturado */
+  private static readonly SAFE_TEXT_FALLBACK_TOOLS = new Set(['getAvailableSlots', 'getServices', 'getProfessionals', 'getClientAppointments']);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -265,6 +267,11 @@ export class AIService {
       throw new BadRequestException('Assistente de IA desativado para esta empresa.');
     }
 
+    const { currentTime } = this.getBrazilDatetime();
+    if (this.isOutsideAllowedHours(config, currentTime)) {
+      throw new BadRequestException('Fora do horário de atendimento configurado para o assistente de IA.');
+    }
+
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
@@ -285,9 +292,17 @@ export class AIService {
       );
     }
 
+    // A mensagem atual pode já ter sido persistida pelo chamador (ex: WhatsAppService) antes
+    // de chegar aqui — se o último item do histórico for exatamente ela, não a duplicamos.
+    let history = this.selectRecentHistory(conversation.messages);
+    const lastHistoryItem = history[history.length - 1];
+    if (lastHistoryItem && lastHistoryItem.sender === 'CLIENT' && lastHistoryItem.content === message) {
+      history = history.slice(0, -1);
+    }
+
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...conversation.messages.slice(-20).map((m) => ({
+      ...history.map((m) => ({
         role: m.sender === 'CLIENT' ? 'user' as const : 'assistant' as const,
         content: m.content,
       })),
@@ -415,6 +430,20 @@ export class AIService {
               time: { type: 'string', description: 'Horário no formato HH:MM' },
             },
             required: ['serviceId', 'professionalId', 'clientName', 'clientPhone', 'date', 'time'],
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'getClientAppointments',
+          description: 'Lista os agendamentos futuros (não cancelados nem concluídos) de um cliente pelo telefone. Use antes de cancelAppointment para descobrir o appointmentId correto.',
+          parameters: {
+            type: 'object',
+            properties: {
+              clientPhone: { type: 'string', description: 'Telefone do cliente' },
+            },
+            required: ['clientPhone'],
           },
         },
       },
@@ -550,6 +579,17 @@ export class AIService {
     if (choice.message.content) {
       const llamaCall = this.parseGroqLlamaToolCall(choice.message.content);
       if (llamaCall) {
+        if (!AIService.SAFE_TEXT_FALLBACK_TOOLS.has(llamaCall.fnName)) {
+          // Ações com efeito colateral real (criar/cancelar agendamento) exigem o contrato
+          // estruturado de tool_calls da API — não são executadas a partir de um parse de
+          // texto livre, que pode ser uma alucinação de formatação do modelo.
+          this.logger.warn(`Groq LLaMA tentou executar '${llamaCall.fnName}' via fallback de texto; ignorado por segurança.`);
+          return {
+            responseText: llamaCall.textBefore || 'Só um instante, pode confirmar os dados novamente?',
+            totalTokens,
+          };
+        }
+
         this.logger.log(`Groq LLaMA tool call detectado no content: ${llamaCall.fnName}`);
         const toolResult = await this.executeTool(llamaCall.fnName, llamaCall.fnArgs, companyId);
         const fakeId = `call_${Date.now()}`;
@@ -665,16 +705,45 @@ export class AIService {
     return { responseText: textPart?.text || '', totalTokens };
   }
 
+  /**
+   * Resolve um nome informado pelo modelo para um ID único, quando ele não usa o UUID interno.
+   * Se houver mais de um resultado (ex: dois profissionais com nomes parecidos), retorna erro
+   * pedindo confirmação em vez de escolher um arbitrariamente.
+   */
+  private async resolveIdByName(
+    model: 'professional' | 'service',
+    companyId: string,
+    value: string,
+  ): Promise<{ id?: string; error?: string }> {
+    const label = model === 'professional' ? 'profissional' : 'serviço';
+    const matches = model === 'professional'
+      ? await this.prisma.professional.findMany({
+          where: { companyId, name: { contains: value, mode: 'insensitive' }, isActive: true },
+          select: { id: true, name: true },
+        })
+      : await this.prisma.service.findMany({
+          where: { companyId, name: { contains: value, mode: 'insensitive' }, isActive: true },
+          select: { id: true, name: true },
+        });
+
+    if (matches.length === 0) {
+      return { error: `Nenhum ${label} encontrado com o nome "${value}".` };
+    }
+    if (matches.length > 1) {
+      return { error: `Mais de um ${label} corresponde a "${value}" (${matches.map((m) => m.name).join(', ')}). Peça ao cliente para confirmar qual deles.` };
+    }
+    return { id: matches[0].id };
+  }
+
   private async executeTool(fnName: string, fnArgs: any, companyId: string): Promise<any> {
     switch (fnName) {
       case 'getAvailableSlots': {
         // Modelo pode enviar nome em vez de UUID — resolver por nome se necessário
         let professionalId = fnArgs.professionalId as string;
         if (professionalId && !this.isUUID(professionalId)) {
-          const prof = await this.prisma.professional.findFirst({
-            where: { companyId, name: { contains: professionalId, mode: 'insensitive' }, isActive: true },
-          });
-          if (prof) professionalId = prof.id;
+          const resolved = await this.resolveIdByName('professional', companyId, professionalId);
+          if (resolved.error) return { error: resolved.error };
+          professionalId = resolved.id!;
         }
         return this.getAvailableSlots(professionalId, fnArgs.date, companyId);
       }
@@ -682,22 +751,22 @@ export class AIService {
         const args = { ...fnArgs };
         // Resolver serviceId por nome se não for UUID
         if (args.serviceId && !this.isUUID(args.serviceId)) {
-          const svc = await this.prisma.service.findFirst({
-            where: { companyId, name: { contains: args.serviceId, mode: 'insensitive' }, isActive: true },
-          });
-          if (svc) args.serviceId = svc.id;
+          const resolved = await this.resolveIdByName('service', companyId, args.serviceId);
+          if (resolved.error) return { error: resolved.error };
+          args.serviceId = resolved.id;
         }
         // Resolver professionalId por nome se não for UUID
         if (args.professionalId && !this.isUUID(args.professionalId)) {
-          const prof = await this.prisma.professional.findFirst({
-            where: { companyId, name: { contains: args.professionalId, mode: 'insensitive' }, isActive: true },
-          });
-          if (prof) args.professionalId = prof.id;
+          const resolved = await this.resolveIdByName('professional', companyId, args.professionalId);
+          if (resolved.error) return { error: resolved.error };
+          args.professionalId = resolved.id;
         }
         return this.createAppointment(companyId, args, '');
       }
       case 'cancelAppointment':
         return this.cancelAppointment(fnArgs.appointmentId, companyId);
+      case 'getClientAppointments':
+        return this.getClientAppointments(companyId, fnArgs.clientPhone);
       case 'getServices': {
         const services = await this.prisma.service.findMany({ where: { companyId, isActive: true } });
         return services.map((s) => ({
@@ -753,6 +822,29 @@ export class AIService {
 
     // Sem fallback genérico — rejeitar formatos desconhecidos para evitar datas acidentais
     return null;
+  }
+
+  /** Verifica se o horário atual está fora da janela de atendimento configurada (comparação simples HH:MM, sem virada de dia) */
+  private isOutsideAllowedHours(config: { allowedHoursStart?: string | null; allowedHoursEnd?: string | null }, currentTime: string): boolean {
+    if (!config.allowedHoursStart || !config.allowedHoursEnd) return false;
+    return currentTime < config.allowedHoursStart || currentTime >= config.allowedHoursEnd;
+  }
+
+  /**
+   * Seleciona as mensagens mais recentes do histórico respeitando um orçamento aproximado
+   * de caracteres (proxy simples de tokens), em vez de um número fixo de mensagens — evita
+   * tanto estourar o contexto do modelo quanto perder informação relevante prematuramente.
+   */
+  private selectRecentHistory<T extends { content: string }>(messages: T[], maxChars = 8000, maxMessages = 40): T[] {
+    const result: T[] = [];
+    let totalChars = 0;
+    for (let i = messages.length - 1; i >= 0 && result.length < maxMessages; i--) {
+      const len = messages[i].content?.length || 0;
+      if (totalChars + len > maxChars && result.length > 0) break;
+      totalChars += len;
+      result.unshift(messages[i]);
+    }
+    return result;
   }
 
   /** Retorna data e hora atual no fuso horário de Brasília (America/Sao_Paulo) */
@@ -977,6 +1069,35 @@ export class AIService {
         endTime,
       },
     };
+  }
+
+  private async getClientAppointments(companyId: string, clientPhone: string) {
+    if (!clientPhone) {
+      return { error: 'O telefone do cliente é obrigatório.' };
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const appointments = await this.prisma.appointment.findMany({
+      where: {
+        companyId,
+        clientPhone,
+        status: { notIn: ['CANCELLED', 'COMPLETED'] },
+        date: { gte: todayStart },
+      },
+      include: { service: true, professional: true },
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
+    });
+
+    return appointments.map((a) => ({
+      appointmentId: a.id,
+      service: a.service.name,
+      professional: a.professional.name,
+      date: a.date.toISOString().slice(0, 10),
+      time: a.startTime,
+      status: a.status,
+    }));
   }
 
   private async cancelAppointment(appointmentId: string, companyId: string) {
