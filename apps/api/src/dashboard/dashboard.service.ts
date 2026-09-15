@@ -168,6 +168,7 @@ export class DashboardService {
     const revenueByMonthMap = new Map<string, number>();
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now);
+      d.setDate(1);
       d.setMonth(d.getMonth() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       revenueByMonthMap.set(key, 0);

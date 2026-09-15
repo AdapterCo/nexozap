@@ -67,6 +67,7 @@ export class AuthService {
           ownerName: data.name,
           email: data.email,
           plan: data.plan,
+          planStatus: 'PAST_DUE',
         },
       });
       await transaction.companyUser.create({
@@ -199,6 +200,10 @@ export class AuthService {
       include: { company: true },
     });
 
+    if (companyUser?.company?.planStatus === 'PAST_DUE' && !companyUser.company.planActivatedAt) {
+      throw new UnauthorizedException('Pagamento pendente. Conclua o pagamento para ativar sua conta.');
+    }
+
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
     return {
@@ -206,6 +211,57 @@ export class AuthService {
       user: { id: user.id, email: user.email, name: user.name, role: user.role, avatar: user.avatar },
       company: companyUser ? { id: companyUser.company.id, name: companyUser.company.name, plan: companyUser.company.plan } : null,
     };
+  }
+
+  private createPasswordResetToken(userId: string): string {
+    const payload = Buffer.from(JSON.stringify({ userId, exp: Date.now() + 15 * 60_000 })).toString('base64url');
+    const signature = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payload)
+      .digest('base64url');
+    return `${payload}.${signature}`;
+  }
+
+  private assertPasswordResetToken(token: string | undefined): string {
+    if (!token) throw new BadRequestException('Token de redefinição obrigatório');
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) throw new BadRequestException('Token de redefinição inválido');
+    const expected = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payload)
+      .digest('base64url');
+    if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      throw new BadRequestException('Token de redefinição inválido');
+    }
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { userId: string; exp: number };
+    if (data.exp < Date.now()) {
+      throw new BadRequestException('Token de redefinição expirado. Solicite um novo.');
+    }
+    return data.userId;
+  }
+
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return { success: true, message: 'Se o e-mail estiver cadastrado, as instruções foram geradas.' };
+    }
+    const resetToken = this.createPasswordResetToken(user.id);
+    return {
+      success: true,
+      message: 'Instruções para redefinição geradas com sucesso.',
+      resetToken,
+    };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('A senha deve ter pelo menos 6 caracteres');
+    }
+    const userId = this.assertPasswordResetToken(token);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+    return { success: true, message: 'Senha redefinida com sucesso!' };
   }
 
   async getProfile(userId: string) {

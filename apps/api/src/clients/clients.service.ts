@@ -197,11 +197,109 @@ export class ClientsService {
     });
   }
 
+  async findAppointmentById(id: string, accessToken?: string) {
+    this.assertAccessToken(accessToken, id);
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        service: true,
+        professional: true,
+        company: {
+          select: { id: true, name: true, whatsapp: true, openingTime: true, closingTime: true },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Agendamento não encontrado');
+    }
+
+    const d = appointment.date instanceof Date ? appointment.date : new Date(appointment.date);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+
+    return {
+      ...appointment,
+      date: `${yyyy}-${mm}-${dd}`,
+      accessToken,
+    };
+  }
+
+  async getAvailableSlots(id: string, date: string, accessToken?: string) {
+    this.assertAccessToken(accessToken, id);
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: { service: true, professional: true, company: true },
+    });
+    if (!appointment) throw new NotFoundException('Agendamento não encontrado');
+
+    const [dy, dm, dd] = date.split('T')[0].split('-').map(Number);
+    const targetDate = new Date(Date.UTC(dy, dm - 1, dd));
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = days[targetDate.getUTCDay()];
+
+    if (!appointment.professional.availableDays.includes(dayName)) {
+      return [];
+    }
+
+    const dayStart = new Date(targetDate);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(targetDate);
+    dayEnd.setUTCHours(23, 59, 59, 999);
+
+    const existingAppointments = await this.prisma.appointment.findMany({
+      where: {
+        professionalId: appointment.professionalId,
+        date: { gte: dayStart, lte: dayEnd },
+        status: { notIn: ['CANCELLED'] },
+        id: { not: id },
+      },
+    });
+
+    const timeBlocks = await this.prisma.timeBlock.findMany({
+      where: {
+        professionalId: appointment.professionalId,
+        date: { gte: dayStart, lte: dayEnd },
+      },
+    });
+
+    const [openH, openM] = (appointment.company.openingTime || '08:00').split(':').map(Number);
+    const [closeH, closeM] = (appointment.company.closingTime || '18:00').split(':').map(Number);
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+    const duration = appointment.service.durationMinutes || 30;
+
+    const slots: string[] = [];
+    for (let m = openMinutes; m + duration <= closeMinutes; m += 30) {
+      const h = Math.floor(m / 60);
+      const min = m % 60;
+      const slotStart = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+      const endTotal = m + duration;
+      const endH = Math.floor(endTotal / 60);
+      const endMin = endTotal % 60;
+      const slotEnd = `${String(endH).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
+
+      const overlapsApt = existingAppointments.some(
+        (a) => a.startTime < slotEnd && a.endTime > slotStart,
+      );
+      const overlapsBlock = timeBlocks.some(
+        (b) => b.startTime < slotEnd && b.endTime > slotStart,
+      );
+
+      if (!overlapsApt && !overlapsBlock) {
+        slots.push(slotStart);
+      }
+    }
+
+    return slots;
+  }
+
   async reschedule(id: string, newDate: string, newTime: string, accessToken?: string) {
     this.assertAccessToken(accessToken, id);
     const appointment = await this.prisma.appointment.findUnique({
       where: { id },
-      include: { service: true, professional: true },
+      include: { service: true, professional: true, company: true },
     });
 
     if (!appointment) {
@@ -223,9 +321,20 @@ export class ClientsService {
     const endM = totalMinutes % 60;
     const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-    const newDateObj = new Date(newDate);
+    if (
+      newTime < (appointment.company.openingTime || '08:00') ||
+      endTime > (appointment.company.closingTime || '18:00')
+    ) {
+      throw new BadRequestException(
+        `Horário fora do expediente da empresa (${appointment.company.openingTime || '08:00'} - ${appointment.company.closingTime || '18:00'})`,
+      );
+    }
+
+    const [dy, dm, dd] = newDate.split('T')[0].split('-').map(Number);
+    const appointmentDate = new Date(Date.UTC(dy, dm - 1, dd));
+
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = days[newDateObj.getUTCDay()];
+    const dayName = days[appointmentDate.getUTCDay()];
 
     const professional = await this.prisma.professional.findUnique({
       where: { id: appointment.professionalId },
@@ -239,10 +348,10 @@ export class ClientsService {
       throw new BadRequestException('Profissional não disponível neste dia');
     }
 
-    const dayStart = new Date(newDateObj);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(newDateObj);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayStart = new Date(appointmentDate);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(appointmentDate);
+    dayEnd.setUTCHours(23, 59, 59, 999);
 
     const overlapping = await this.prisma.appointment.findFirst({
       where: {
@@ -261,10 +370,25 @@ export class ClientsService {
       throw new ConflictException('Horário conflita com agendamento existente');
     }
 
+    const timeBlock = await this.prisma.timeBlock.findFirst({
+      where: {
+        professionalId: appointment.professionalId,
+        date: { gte: dayStart, lte: dayEnd },
+        AND: [
+          { startTime: { lt: endTime } },
+          { endTime: { gt: newTime } },
+        ],
+      },
+    });
+
+    if (timeBlock) {
+      throw new ConflictException('Horário bloqueado pelo profissional');
+    }
+
     return this.prisma.appointment.update({
       where: { id },
       data: {
-        date: newDateObj,
+        date: appointmentDate,
         startTime: newTime,
         endTime,
       },

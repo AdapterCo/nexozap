@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('nexozap_token')?.value;
   const { pathname } = request.nextUrl;
 
-  const publicPaths = ['/login', '/register', '/cliente'];
+  const publicPaths = ['/login', '/register', '/cliente', '/forgot-password'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   if (!token && !isPublicPath) {

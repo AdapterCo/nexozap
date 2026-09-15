@@ -9,3 +9,6 @@ coverage/
 .github
 .agents
 .gemini
+.env
+.env.*
+whatsapp-sessions/

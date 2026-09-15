@@ -25,6 +25,7 @@ export default function FlowEditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadFlow = useCallback(async () => {
     setLoading(true);
@@ -49,6 +50,7 @@ export default function FlowEditorPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveFeedback(null);
     try {
       await api.patch(`/companies/${company?.id}/flows/${flowId}`, {
         name: flowName,
@@ -57,8 +59,12 @@ export default function FlowEditorPage() {
         nodes,
         edges,
       });
-    } catch {
-      // silently fail
+      setSaveFeedback({ type: 'success', message: 'Fluxo salvo com sucesso!' });
+      setTimeout(() => setSaveFeedback(null), 3000);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Erro ao salvar o fluxo.';
+      setSaveFeedback({ type: 'error', message: msg });
+      setTimeout(() => setSaveFeedback(null), 5000);
     } finally {
       setSaving(false);
     }
@@ -133,6 +139,18 @@ export default function FlowEditorPage() {
           <span className="text-xs text-gray-500">
             {flowActive ? 'Ativa' : 'Inativa'}
           </span>
+          {saveFeedback && (
+            <span
+              className={cn(
+                'text-xs px-2.5 py-1 rounded-md font-medium transition-all',
+                saveFeedback.type === 'success'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200',
+              )}
+            >
+              {saveFeedback.message}
+            </span>
+          )}
           <button
             onClick={handleSave}
             disabled={saving}

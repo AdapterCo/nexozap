@@ -82,20 +82,22 @@ export class RemindersService {
         const dd = d.getUTCDate();
 
         const [startH, startM] = appointment.startTime.split(':').map(Number);
-        const appointmentStart = new Date(yyyy, mm, dd, startH, startM, 0, 0);
+        // Horário de Brasília (UTC-3): soma 3 horas para obter o timestamp absoluto UTC
+        const appointmentStart = new Date(Date.UTC(yyyy, mm, dd, startH + 3, startM, 0, 0));
 
         const [endH, endM] = appointment.endTime.split(':').map(Number);
-        const appointmentEnd = new Date(yyyy, mm, dd, endH, endM, 0, 0);
+        const appointmentEnd = new Date(Date.UTC(yyyy, mm, dd, endH + 3, endM, 0, 0));
 
         const diffStart = appointmentStart.getTime() - now.getTime();
         const diffEnd = now.getTime() - appointmentEnd.getTime();
 
-        // Check 24h reminders
-        if (appointment.status !== 'COMPLETED' && diffStart > 0 && diffStart <= 24.5 * 60 * 60 * 1000) {
+        // Check 24h reminders (apenas na janela entre 23h e 25h antes do agendamento)
+        if (appointment.status !== 'COMPLETED' && diffStart >= 23 * 60 * 60 * 1000 && diffStart <= 25 * 60 * 60 * 1000) {
           const has24h = appointment.reminders.some((r) => r.type === 'HOURS_24');
           if (!has24h) {
             const message = (settings?.hours24Message ||
-              'Lembrete: Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              'Lembrete: Olá {nome}! Você tem um agendamento amanhã às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              .replace('{nome}', appointment.clientName || 'Cliente')
               .replace('{hora}', appointment.startTime)
               .replace('{serviço}', appointment.service.name)
               .replace('{profissional}', appointment.professional.name);
@@ -104,12 +106,13 @@ export class RemindersService {
           }
         }
 
-        // Check 2h reminders
-        if (appointment.status !== 'COMPLETED' && diffStart > 0 && diffStart <= 2.5 * 60 * 60 * 1000) {
+        // Check 2h reminders (janela entre 1h e 2.5h)
+        if (appointment.status !== 'COMPLETED' && diffStart >= 60 * 60 * 1000 && diffStart <= 2.5 * 60 * 60 * 1000) {
           const has2h = appointment.reminders.some((r) => r.type === 'HOURS_2');
           if (!has2h) {
             const message = (settings?.hours2Message ||
-              'Lembrete: Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              'Lembrete: Olá {nome}! Seu agendamento é em 2 horas às {hora}. Serviço: {serviço}. Profissional: {profissional}.')
+              .replace('{nome}', appointment.clientName || 'Cliente')
               .replace('{hora}', appointment.startTime)
               .replace('{serviço}', appointment.service.name)
               .replace('{profissional}', appointment.professional.name);

@@ -51,8 +51,12 @@ export class AIService {
     const data: any = {};
     if (dto.provider !== undefined) data.provider = dto.provider;
     if (dto.model !== undefined) data.model = dto.model;
-    if (dto.apiKey !== undefined && dto.apiKey !== '' && !this.isMaskedApiKey(dto.apiKey)) {
-      data.apiKey = this.encryption.encrypt(dto.apiKey);
+    if (dto.apiKey !== undefined) {
+      if (dto.apiKey === '') {
+        data.apiKey = null;
+      } else if (!this.isMaskedApiKey(dto.apiKey)) {
+        data.apiKey = this.encryption.encrypt(dto.apiKey);
+      }
     }
     if (dto.personality !== undefined) data.personality = dto.personality;
     if (dto.toneOfVoice !== undefined) data.toneOfVoice = dto.toneOfVoice;
@@ -261,6 +265,14 @@ export class AIService {
 
     if (!config) {
       throw new BadRequestException('Configuracao de IA nao encontrada para esta empresa.');
+    }
+
+    if (company?.plan === 'BASIC') {
+      throw new BadRequestException('O plano Básico não inclui o assistente de IA. Faça upgrade para o plano Profissional ou Empresarial.');
+    }
+
+    if (company?.planStatus === 'PAST_DUE') {
+      throw new BadRequestException('Assinatura vencida. Regularize o plano para continuar usando o assistente de IA.');
     }
 
     if (!config.isActive) {
@@ -795,7 +807,7 @@ export class AIService {
     const clean = dateStr.trim();
 
     // Formato DD/MM/AAAA ou DD-MM-AAAA
-    const brMatch = clean.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+    const brMatch = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
     if (brMatch) {
       const d = Number(brMatch[1]);
       const m = Number(brMatch[2]);
@@ -809,7 +821,7 @@ export class AIService {
     }
 
     // Formato AAAA-MM-DD ou AAAA/MM/DD
-    const isoMatch = clean.match(/^(\d{4})[/\-](\d{2})[/\-](\d{2})$/);
+    const isoMatch = clean.match(/^(\d{4})[/-](\d{2})[/-](\d{2})$/);
     if (isoMatch) {
       const y = Number(isoMatch[1]);
       const m = Number(isoMatch[2]);

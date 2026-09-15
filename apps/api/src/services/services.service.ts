@@ -89,6 +89,22 @@ export class ServicesService {
   async delete(id: string, companyId: string) {
     await this.getById(id, companyId);
 
+    const appointmentsCount = await this.prisma.appointment.count({
+      where: { serviceId: id },
+    });
+
+    if (appointmentsCount > 0) {
+      // Aplica soft-delete para preservar integridade dos agendamentos existentes
+      return this.prisma.service.update({
+        where: { id },
+        data: { isActive: false },
+      });
+    }
+
+    await this.prisma.professionalService.deleteMany({
+      where: { serviceId: id },
+    });
+
     return this.prisma.service.delete({ where: { id } });
   }
 

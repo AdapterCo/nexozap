@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Put, Body, Param, Query, Headers, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../common/guards/company-access.guard';
@@ -14,6 +15,7 @@ export class BillingController {
    * de usuário) — a integridade é garantida pela validação de assinatura HMAC e
    * pela reconsulta do pagamento diretamente na API do MP antes de qualquer alteração.
    */
+  @SkipThrottle()
   @Post('billing/webhook/mercadopago')
   @HttpCode(HttpStatus.OK)
   async handleMercadoPagoWebhook(

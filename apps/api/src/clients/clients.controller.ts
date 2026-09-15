@@ -63,6 +63,25 @@ export class ClientsController {
     return this.clientsService.findAppointmentsByPhone(phone, code);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('appointments/:id')
+  async findAppointmentById(
+    @Param('id') id: string,
+    @Query('accessToken') accessToken?: string,
+  ) {
+    return this.clientsService.findAppointmentById(id, accessToken);
+  }
+
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('appointments/:id/slots')
+  async getAvailableSlots(
+    @Param('id') id: string,
+    @Query('date') date: string,
+    @Query('accessToken') accessToken?: string,
+  ) {
+    return this.clientsService.getAvailableSlots(id, date, accessToken);
+  }
+
   @Post('appointments/:id/cancel')
   async cancelAppointment(@Param('id') id: string, @Body('accessToken') accessToken: string) {
     return this.clientsService.cancelAppointment(id, accessToken);

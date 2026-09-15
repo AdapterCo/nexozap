@@ -27,8 +27,9 @@ export class ConversationsController {
   update(
     @Param('companyId') companyId: string,
     @Param('id') id: string,
-    @Body() body: { mode?: 'FLOW' | 'AI' | 'HUMAN'; status?: 'ACTIVE' | 'ARCHIVED' },
+    @Body() body: { mode?: 'FLOW' | 'AI' | 'HUMAN'; status?: 'ACTIVE' | 'CLOSED' | 'WAITING' | 'ARCHIVED' },
   ) {
-    return this.conversations.update(companyId, id, body);
+    const status = body.status === 'ARCHIVED' ? 'CLOSED' : body.status;
+    return this.conversations.update(companyId, id, { ...body, ...(status && { status }) });
   }
 }

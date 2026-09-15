@@ -88,22 +88,37 @@ export class BillingService {
       throw new BadRequestException('Plano inválido');
     }
 
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: { users: { include: { user: true } } },
+    });
+    const ownerUser = company?.users?.find((u) => u.role === 'OWNER')?.user || company?.users?.[0]?.user;
+    const payerEmail = cardData?.email || ownerUser?.email || company?.email || 'contato@nexozap.com';
+    const nameParts = (ownerUser?.name || company?.ownerName || 'Cliente NexoZap').trim().split(/\s+/);
+    const firstName = nameParts[0] || 'Cliente';
+    const lastName = nameParts.slice(1).join(' ') || 'NexoZap';
+
     if (paymentMethod === 'pix') {
       let mpPayment: any;
 
       try {
-        const mpPayload = {
+        const docNumber = cardData?.identificationNumber?.replace(/\D/g, '');
+        const mpPayload: any = {
           transaction_amount: amount,
           description: `Assinatura NexoZap - Plano ${plan}`,
           payment_method_id: 'pix',
           payer: {
-            email: 'cliente@nexozap.com',
-            first_name: 'NexoZap',
-            last_name: 'Cliente',
-            identification: {
-              type: 'CPF',
-              number: '12345678909',
-            },
+            email: payerEmail,
+            first_name: firstName,
+            last_name: lastName,
+            ...(docNumber && docNumber.length >= 11
+              ? {
+                  identification: {
+                    type: cardData?.identificationType || (docNumber.length > 11 ? 'CNPJ' : 'CPF'),
+                    number: docNumber,
+                  },
+                }
+              : {}),
           },
         };
 

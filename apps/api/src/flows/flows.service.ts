@@ -225,6 +225,7 @@ export class FlowsService {
     edges: FlowEdge[],
     companyId: string,
     conversationId: string,
+    isTransition = false,
   ): Promise<{ response: string; completed: boolean }> {
     switch (node.type) {
       case 'START': {
@@ -237,7 +238,7 @@ export class FlowsService {
           }
           state.currentNodeId = nextEdge.target;
           await this.saveFlowState(conversationId, state);
-          return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId);
+          return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId, true);
         }
         return { response: 'Bem-vindo!', completed: false };
       }
@@ -261,6 +262,15 @@ export class FlowsService {
         const options = node.data.options || [];
         if (options.length === 0) {
           return { response: 'Menu sem opções.', completed: true };
+        }
+
+        // Se acabou de transitar para o menu, apenas exibe as opções sem avaliar a mensagem anterior
+        if (isTransition) {
+          const menuText = node.data.message || 'Escolha uma opção:';
+          const optionsText = options
+            .map((opt, i) => `${i + 1}. ${opt.label}`)
+            .join('\n');
+          return { response: `${menuText}\n${optionsText}`, completed: false };
         }
 
         // Verificar se o usuário escolheu uma opção (número ou texto)
@@ -296,7 +306,7 @@ export class FlowsService {
             }
             state.currentNodeId = matchingEdge.target;
             await this.saveFlowState(conversationId, state);
-            return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId);
+            return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId, true);
           }
         }
 
@@ -309,6 +319,12 @@ export class FlowsService {
       }
 
       case 'QUESTION': {
+        const question = node.data.question || 'Por favor, responda:';
+        // Se acabou de transitar para a pergunta, exibe a pergunta sem consumir a mensagem anterior
+        if (isTransition) {
+          return { response: question, completed: false };
+        }
+
         const savedKey = node.data.variable || node.id;
         if (userMessage.trim()) {
           state.answers[savedKey] = userMessage.trim();
@@ -321,12 +337,11 @@ export class FlowsService {
             }
             state.currentNodeId = nextEdge.target;
             await this.saveFlowState(conversationId, state);
-            return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId);
+            return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId, true);
           }
           await this.clearFlowState(conversationId);
           return { response: 'Obrigado pela informação!', completed: true };
         }
-        const question = node.data.question || 'Por favor, responda:';
         return { response: question, completed: false };
       }
 
@@ -374,7 +389,7 @@ export class FlowsService {
           }
           state.currentNodeId = fallbackEdge.target;
           await this.saveFlowState(conversationId, state);
-          return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId);
+          return this.processNode(nextNode, userMessage, state, nodes, edges, companyId, conversationId, true);
         }
 
         await this.clearFlowState(conversationId);

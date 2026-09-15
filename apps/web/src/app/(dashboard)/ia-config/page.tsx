@@ -60,9 +60,12 @@ export default function IaConfigPage() {
   const fetchUsage = useCallback(async () => {
     if (!company?.id) return
     try {
-      const res = await api.get(`/dashboard/${company.id}/stats`)
+      const res = await api.get(`/companies/${company.id}/ai-usage`)
       if (res.data) {
-        setUsage({ daily: res.data.dailyTokenUsage || 0, monthly: res.data.monthlyTokenUsage || 0 })
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const todayTokens = res.data.chart?.find((c: any) => c.date === todayStr)?.tokens || 0
+        const monthlyTokens = res.data.summary?.totalMonth || 0
+        setUsage({ daily: todayTokens, monthly: monthlyTokens })
       }
     } catch {
     }
